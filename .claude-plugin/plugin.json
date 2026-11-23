@@ -1,0 +1,6 @@
+{
+  "name": "company-hq",
+  "version": "0.1.0",
+  "description": "Company HQ for Claude Code: live company org chart, runs and delegation in a side pane, a status row above the prompt, and /hq commands.",
+  "types": "./types/index.d.ts"
+}

@@ -1,0 +1,5 @@
+{
+  "name": "claude-company-local",
+  "owner": { "name": "local" },
+  "plugins": [{ "name": "company-hq", "source": "./" }]
+}
