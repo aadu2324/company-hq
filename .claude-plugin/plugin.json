@@ -1,6 +1,11 @@
 {
   "name": "company-hq",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Company HQ for Claude Code: live company org chart, runs and delegation in a side pane, a status row above the prompt, and /hq commands.",
+  "author": { "name": "aadu2324", "url": "https://github.com/aadu2324" },
+  "homepage": "https://github.com/aadu2324/company-hq",
+  "repository": "https://github.com/aadu2324/company-hq",
+  "license": "MIT",
+  "keywords": ["claude-code", "multi-agent", "org-chart", "dashboard", "subagents", "delegation"],
   "types": "./types/index.d.ts"
 }

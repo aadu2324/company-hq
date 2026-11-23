@@ -1,5 +1,6 @@
 {
   "name": "claude-company-local",
-  "owner": { "name": "local" },
+  "owner": { "name": "aadu2324" },
+  "metadata": { "description": "company-hq: watch Claude Code agents work as a company, live beside the chat." },
   "plugins": [{ "name": "company-hq", "source": "./" }]
 }
