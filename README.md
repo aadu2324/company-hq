@@ -4,66 +4,69 @@
 
 # company-hq
 
-**See your Claude Code agents work like a company: Board, executives, departments, workers and reviewers, live beside the chat.**
+**Run Claude Code like a company.** Every project gets a Board, executives, departments, managers,
+workers, reviewers and a legal team. You hand over a request; they plan it, split it, check it and sign it
+off, while you watch the whole org chart work live beside the chat.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-d97757.svg)](LICENSE)
-[![Claude Code mod](https://img.shields.io/badge/Claude%20Code-mod-1c1917.svg)](https://docs.claude.com/en/docs/claude-code)
-[![Version](https://img.shields.io/badge/version-0.1.1-78c88c.svg)](CHANGELOG.md)
-[![Tokens used](https://img.shields.io/badge/tokens%20used-0-78c88c.svg)](#privacy-and-cost)
+[![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-1c1917.svg)](https://docs.claude.com/en/docs/claude-code)
+[![Version](https://img.shields.io/badge/version-0.2.0-78c88c.svg)](CHANGELOG.md)
+[![Node](https://img.shields.io/badge/node-%E2%89%A520-78c88c.svg)](https://nodejs.org)
+[![Agents](https://img.shields.io/badge/role%20agents-19-d97757.svg)](agents)
 
-[Install](#install) · [Quick start](#quick-start) · [Commands](#commands) · [How it works](#how-it-works) · [FAQ](#faq)
+[Install](#install) · [What you see](#what-you-see) · [Quick start](#quick-start) · [How a run works](#how-a-run-works) · [Teams](#teams) · [Configuration](#configuration) · [FAQ](#faq)
 
 </div>
 
 ---
 
-When Claude Code delegates to subagents, the work disappears into a single transcript. **company-hq** gives
-it an org chart. Every project gets a team: a Board, a CEO and CTO, and departments with managers, workers
-and reviewers. This mod shows that team in a side pane, updating every two seconds as agents pick up and
-finish work.
+One Claude session doing everything in sequence is slow, and nobody checks its work. **company-hq** turns
+your request into a staffed plan: a CEO splits it across departments, each department's manager delegates
+to specialist workers in parallel, a review panel (QA, code, security, legal, peer review) sends work back
+until it is right, and the Board signs off with a report. It is built to be safe on an ordinary laptop:
+outbound work is drafts only, and the number of Claude processes is capped by free memory.
 
-```
- Claude HQ ─────────────────────────────────────────────────────────────
- Acme · startup · 1 active run · 3 agent(s) working       [Stop run] [Refresh]
+<p align="center">
+  <img src="assets/hq-demo.svg" alt="The HQ pane following one run: planning, building, review, Board sign-off, done" width="860" />
+</p>
 
- Org chart
- Board of Directors · chair, risk, quality
- ★ CEO
-   ● Product — Head of Product
-       Product Manager
-       review: QA Reviewer
-   ● Sales & Outreach — Head of Outreach
-       ● Outreach Writer ×1
-       review: Legal Reviewer
-   ★ CTO
-     ● Engineering — Engineering Manager
-         ● Software Engineer ×2
-         review: Code Reviewer, Security Reviewer
+## What you see
 
- Goal: Ship the public API and draft launch outreach
- ● T1 engineering: Build API (2 working)
- ⚖ T2 outreach: Cold email sequence r1
- ○ T3 product: Launch PRD
+The HQ pane sits beside the chat (or as a corner widget) and tells you, in plain words, what your company is doing:
 
- Activity
- 10:16 CEO planned 3 task(s): Ship the public API and draft launch outreach
- 10:16 ⚙ manager T1 engineering
- 10:17 → general-purpose: implement endpoints
- 10:21 ⚖ T2 revise (6/10): tighten the CAN-SPAM footer
-```
+| | |
+|---|---|
+| **Status at a glance** | A coloured status pill (Planning, Working, Board review, Done, Done with issues), live agent count, cost and elapsed time, with a spinner while work is under way. |
+| **Where the run is** | A five-stage pipeline (Plan → Build → Review → Board → Report) that lights up as the run moves. |
+| **Now** | One sentence on what is happening: *“Engineering is building ‘Public API’ with 2 agents; Legal is checking ‘Launch emails’.”* If Claude's usage limit stops the work, it says so, with the reset time. |
+| **Tabs** | **Overview** · **Team** (department cards that light up with live workers) · **Tasks** (a card per task with status, round, reviewers and verdict) · **Activity** (every event, colour-coded). Keys `1`–`4` switch tabs. |
+| **Ask the company** | Type a request straight into the pane and press **Run**. |
+| **Status row** | Above the prompt: `◆ HQ  WORKING  ▰▰▰▱▱ 2/5  Engineering is building “Public API”…  [Open] [Hide]` |
 
 ## Features
 
-- **Live org chart.** Departments that are working light up, and each worker role shows how many agents
-  are running it right now.
-- **Runs at a glance.** Each task's status, revision round and reviewer verdicts, the Board's sign-off,
-  and the cost of the run.
-- **Status row above the prompt.** `HQ · Acme · ▶ executing 2/5 tasks · 3 agent(s) working [Open] [Hide]`
-- **Delegation from the chat too.** Subagents you start from an ordinary conversation appear in the activity
-  feed, marked `chat`.
-- **Corner widget.** Minimise the pane and it becomes a small widget showing the current run.
-- **Works in the terminal and in the desktop app**, drawn with the native elements of each.
-- **Costs nothing to watch.** It only reads local files. It makes no model calls and no network requests.
+- **A team per project.** `/hq init` reads your repo and tailors a startup, research or software team:
+  departments, managers, workers and reviewers that fit what the project actually is.
+- **Real parallel work.** Departments run side by side as separate Claude processes, and each manager
+  fans out to worker subagents inside its process.
+- **Review before done.** Every task goes to a review panel picked for the work, with up to two revision rounds.
+  Anything outward-facing gets a legal review.
+- **Board sign-off.** The Board (chair, risk, quality) approves, approves with conditions, or rejects, and writes
+  `.company/runs/<id>/report.md`.
+- **Live org chart.** A side pane, a corner widget and a status row above the prompt, in the terminal and the
+  desktop app. Delegation from your ordinary chats shows up too.
+- **Memory-aware.** At most 2 Claude processes at once across all projects (configurable), and a launch waits
+  while free RAM is low.
+- **Drafts only.** The company never sends email, posts, publishes, deploys, purchases or commits on its own.
+- **Plays well with ECC.** [ECC](https://github.com/affaan-m/ECC) is a popular collection of Claude Code
+  agents and skills. Specialist roles (code, security and language reviewers, planner, TDD) use its agents when
+  it is installed, and fall back to the bundled agents when it is not. Nothing else is required.
+
+## Requirements
+
+- [Claude Code](https://docs.claude.com/en/docs/claude-code) with plugin mods (the terminal or the desktop app)
+- [Node.js](https://nodejs.org) 20 or newer on your `PATH`
+- The `claude` CLI signed in. Background runs use it: run `claude` once in a terminal and type `/login`.
 
 ## Install
 
@@ -73,12 +76,10 @@ In a Claude Code terminal session:
 /plugin install company-hq --marketplace aadu2324/company-hq
 ```
 
-Answer `y` to add the marketplace, then choose the **user** scope so it loads in every project.
+Answer `y` to add the marketplace, then choose the **user** scope so it is available in every project.
 
 <details>
 <summary>From a shell, or in the desktop app</summary>
-
-From a shell:
 
 ```bash
 claude plugin install company-hq --marketplace aadu2324/company-hq
@@ -89,30 +90,33 @@ In the Claude desktop app: click **+** next to the prompt box → **Plugins** �
 
 </details>
 
-**Already have sessions open?** Type `/reload-plugins` in each one. The mod loads into the running
-session and keeps its whole conversation; you don't need to restart anything.
+**Already have sessions open?** Type `/reload-plugins` in each one. The plugin loads into the running session
+and the conversation stays as it is.
 
 ## Quick start
 
 Open a session in a project folder, then:
 
 ```
-/hq init            # hire a team for this project (about 1–2 minutes)
-/hq                 # open the HQ pane
+/hq init                       hire a team for this project (1–2 minutes)
+/hq                            open the HQ pane
 /hq run Add rate limiting to the API and draft a changelog post
 ```
+
+Prefer to stay in the chat? Ask for `/company-hq:company <request>` and the session itself plays CEO,
+dispatching the same departments and reviewers as subagents.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
 | `/hq` | Open the HQ pane |
-| `/hq run <request>` | Hand a request to the company; it runs in the background and the pane follows it |
+| `/hq run <request>` | Hand a request to the company. It runs in the background and the pane follows it |
 | `/hq init [startup\|research\|software]` | Hire a team tailored to this project. The type is detected if you leave it out |
-| `/hq status` | Recent runs, with free memory and process slots |
-| `/hq stop` | Stop the active run and its processes |
+| `/hq status` | Recent runs, with process slots and free memory |
+| `/hq stop` | Stop the active run and all of its Claude processes |
 
-## How it works
+## How a run works
 
 ```mermaid
 flowchart LR
@@ -128,49 +132,108 @@ flowchart LR
   B --> REP([report.md])
 ```
 
-The team and its runs live in plain files inside the project:
+1. **CEO** (read-only) turns the request into at most 8 tasks, one department each, with real dependencies
+   and a review panel per task. Anything ambiguous becomes a question in the plan.
+2. **Departments** run in dependency order, two at a time by default. Each task is one manager process that
+   delegates to its workers as subagents.
+3. **Review panel** for each task approves it or sends it back with specific fixes, up to two rounds.
+4. **Board** signs off on the whole run and writes the report.
+
+Everything lives in plain files inside the project:
 
 | Path | Contents |
 |---|---|
-| `.company/org.json` | The project's team: executives, departments, managers, workers, reviewers |
+| `.company/org.json` | The team. Commit it if you like |
 | `.company/runs/<id>/state.json` | One run: plan, tasks, verdicts, Board decision, cost |
-| `.company/runs/<id>/events.jsonl` | That run's activity |
-| `.company/events.jsonl` | Delegation from ordinary chat sessions |
-| `~/.claude/company/catalog.json` | Role ids mapped to titles and agents |
+| `.company/runs/<id>/report.md` | The Board's report |
+| `.company/runs/`, `.company/events.jsonl` | Run logs and activity, git-ignored automatically |
 
-The mod reads these files and draws them. Running the team (planning, delegating, reviewing) is done by the
-**Claude HQ engine**, which `/hq run`, `init`, `stop` and `status` call at `~/.claude/company/hq/bin/hq.js`.
+## Teams
 
-> [!NOTE]
-> The engine is not bundled in this repository yet. Without it, the pane still shows any `.company/` files
-> in the project, and the `/hq` commands report that the engine could not be found.
+| Template | Executives | Departments |
+|---|---|---|
+| **startup** | CEO, CTO, CMO, General Counsel | Product, Engineering, Marketing, Web & Landing Pages, Sales & Outreach, Media & Social, Finance, Legal & Compliance |
+| **research** | Program Director, Chief Scientist, Ethics & Compliance Officer | Literature & Novelty, Methodology, Experiments, Analysis, Writing, Outreach, Ethics & Compliance |
+| **software** | CEO, CTO, General Counsel | Product, Engineering, Documentation, Legal & Compliance |
 
-## Privacy and cost
+The org designer starts from the closest template and adapts it to the repository, then the result is
+validated before it is saved. If tailoring fails, the template is used as is.
 
-- Reads only the files listed above. Nothing is sent anywhere.
-- Makes no model calls, so watching costs no tokens.
-- Polls every 2 seconds. A folder without a team is checked every 30 seconds.
+<details>
+<summary>The 19 bundled role agents</summary>
+
+| Leadership | Workers | Reviewers |
+|---|---|---|
+| `co-board` · `co-ceo` · `co-cto` · `co-org-designer` | `co-product-manager` · `co-market-analyst` · `co-finance-analyst` · `co-copywriter` · `co-landing-page-dev` · `co-outreach-writer` · `co-media-manager` · `co-literature-scout` · `co-methodologist` · `co-experimentalist` · `co-data-analyst` · `co-paper-writer` | `co-qa-reviewer` · `co-peer-reviewer` · `co-legal-counsel` |
+
+They install as `company-hq:co-<name>` and can be used directly in any chat too.
+</details>
+
+## Configuration
+
+Optional. Create `~/.claude/company/config.json` with any of these keys:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `maxProcesses` | `2` | Claude processes allowed at once, across all projects |
+| `minFreeMemMB` | `700` | A launch waits while free RAM is below this |
+| `starvationGraceSec` | `30` | If nothing is running, launch anyway after this long |
+| `models` | `ceo`/`board`/`orgDesigner`: `opus`, `manager`/`reviewer`: `sonnet` | Model per role |
+| `permissionMode` | `acceptEdits` | Permission mode for background processes |
+| `processTimeoutMin` | `90` | A process running longer than this is stopped |
+| `vramGB` | none | GPU memory, so workers size experiments to fit. RAM is detected |
+| `claudePath` | auto | Path to the `claude` binary if it is not found |
+
+To change a role, add it to `~/.claude/company/catalog.json` (same shape as
+[`engine/catalog.json`](engine/catalog.json)); your roles override the bundled ones. To change a team
+template, copy it into `~/.claude/company/templates/`.
+
+## Safety and cost
+
+- **Drafts only.** Every prompt carries the company policy: no sending, posting, publishing, deploying,
+  purchasing or signing up, and no commits or pushes unless your request asks for them.
+- **Background permissions.** Managers run with `acceptEdits`, so shell commands outside your Claude Code
+  allow-list are refused in background runs.
+- **A team that came with a repository.** `.company/org.json` becomes part of the prompts, so read one you did
+  not write before your first run in that project. Custom roles in it always run as `general-purpose`, with their
+  text length-limited.
+- **Cost.** Watching is free: the pane reads local files and makes no model calls. Runs use your Claude plan
+  like any other session, with Opus for the CEO, org designer and Board by default. Each run's cost is shown
+  in the pane.
 
 ## FAQ
 
 <details>
 <summary><b>Do I need to restart my sessions after installing?</b></summary>
 
-No. Run `/reload-plugins` in a session that is already open: it loads the mod and runs its start-up, and the
-conversation stays as it was. New sessions load it automatically.
+No. Run `/reload-plugins` in a session that is already open. New sessions load the plugin automatically.
+</details>
+
+<details>
+<summary><b>A run fails at once with "Claude CLI is not logged in".</b></summary>
+
+Background runs use the `claude` CLI, which has its own sign-in. Run `claude` in a terminal and type `/login`.
 </details>
 
 <details>
 <summary><b>The row above the prompt doesn't appear.</b></summary>
 
-It shows only in a project that has a team (`.company/org.json`). Run `/hq init`, or `/hq` to open the pane
-and use **Hire a team**. If you clicked **Hide**, it stays hidden for that session.
+It shows only in a project that has a team (`.company/org.json`). Run `/hq init`, or `/hq` and press
+**Hire a team**. If you clicked **Hide**, it stays hidden for that session.
 </details>
 
 <details>
-<summary><b>Does it slow Claude Code down?</b></summary>
+<summary><b>Will it use my ECC agents?</b></summary>
 
-It reads a few small JSON files every two seconds, and only the last 24 KB of each activity log.
+Yes, when ECC is installed: code review, security review, planning, TDD and the other specialist roles prefer
+`ecc:*` agents and fall back to the bundled ones otherwise. See [`engine/catalog.json`](engine/catalog.json).
+</details>
+
+<details>
+<summary><b>Is there a terminal dashboard?</b></summary>
+
+Yes, from a clone: `cd engine && npm install && node bin/hq.js`. It shows every project's org chart, runs and
+activity, and takes requests from a prompt bar.
 </details>
 
 ## Development
@@ -179,12 +242,22 @@ It reads a few small JSON files every two seconds, and only the last 24 KB of ea
 git clone https://github.com/aadu2324/company-hq
 cd company-hq
 claude plugin validate .
-claude plugin test .
+claude plugin test .              # the mod (pane, band, /hq, logging)
+cd engine && npm test             # the engine (plan, DAG, slots, agents, full run with a fake CLI)
 ```
 
-To run your working copy instead of the installed version, start Claude Code with `--plugin-dir .`.
-The files are small: `hooks/register.tsx` (the mod), `types/index.d.ts` (its state contract) and
-`hq.test.tsx` (tests). See [CONTRIBUTING.md](CONTRIBUTING.md).
+Run your working copy with `claude --plugin-dir .`. Layout:
+
+```
+.claude-plugin/   manifest, marketplace entry, icon
+hooks/            the mod: register.tsx (hooks), model.ts (state → words), view.tsx (pane, band, widget)
+assets/           README animation (regenerate with: node scripts/make-demo-svg.mjs)
+agents/           19 role agents (company-hq:co-*)
+skills/company/   interactive company mode
+engine/           orchestrator, catalog.json, templates/, tests
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

@@ -1,28 +1,26 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface as Engine, Register, Timer } from 'claude-code'
 
-import type { OrgLine, RunBrief, RunView, Snapshot, TaskRow, Tone } from '../types'
+import type { Snapshot, Tab } from '../types'
+import {
+  ACTIVE_RUN, busyAgents, dedupeChatEvents, feedItem, orgGroups, runBrief, runView, type Json,
+} from './model'
+import { bandView, paneView, type Actions, type Ui } from './view'
 
 const PANE = 'company-hq'
 const TITLE = 'Claude HQ'
 const POLL_MS = 2000
+const ANIMATION_MS = 250
 const TAIL_BYTES = 24 * 1024
-const FEED_LINES = 40
-const RUNS_SHOWN = 5
+const FEED_LINES = 60
+const RUNS_SHOWN = 6
 const HQ_TIMEOUT_MS = 60_000
 const NOTICE_MS = 15_000
 const NO_TEAM_RECHECK_MS = 30_000
+const CHAT_FEED_MS = 3_600_000
+const MAX_OPEN_SPAWNS = 200
 const TEAM_TYPES = new Set(['startup', 'research', 'software'])
-const ACTIVE = new Set(['queued', 'planning', 'executing', 'board'])
-const BUSY_TASK = new Set(['queued', 'running', 'revising', 'review'])
-const ICON: Record<string, string> = {
-  pending: '○', queued: '◌', running: '●', revising: '↻', review: '⚖',
-  approved: '✓', failed: '✗', blocked: '⊘', stopped: '■',
-}
-const TONE_COLOR: Record<Tone, string | undefined> = {
-  board: 'claude', exec: 'permission', dept: undefined, busyDept: 'success',
-  worker: undefined, busy: 'success', review: 'subtle',
-}
+const TABS = new Set<Tab>(['overview', 'team', 'tasks', 'activity'])
 const USAGE = [
   '/hq                 open the HQ pane',
   '/hq run <request>   hand a request to the company (runs in the background)',
@@ -32,11 +30,12 @@ const USAGE = [
 ].join('\n')
 
 // Tag changes when Snapshot's fields change, so a value an older version stored is declined.
-const snapshot = atom({ plugin: 'company-hq', key: 'snapshot' } as const, null, { shape: 'snap-1' })
+const snapshot = atom({ plugin: 'company-hq', key: 'snapshot' } as const, null, { shape: 'snap-2' })
 const isBandHidden = atom({ plugin: 'company-hq', key: 'isBandHidden' } as const, false)
 const notice = atom({ plugin: 'company-hq', key: 'notice' } as const, '')
-
-type Json = Record<string, any>
+const tab = atom({ plugin: 'company-hq', key: 'tab' } as const, 'overview' as Tab)
+const pickedRun = atom({ plugin: 'company-hq', key: 'pickedRun' } as const, '')
+const frame = atom({ plugin: 'company-hq', key: 'frame' } as const, 0)
 
 // ---------- reading the company's files ----------
 
@@ -87,83 +86,11 @@ async function listRunIds($: Engine, root: string): Promise<string[]> {
   }
 }
 
-// ---------- turning files into what is drawn ----------
-
-function busyAgents(run: Json | null, interactive: Json[]): Map<string, number> {
-  const counts = new Map<string, number>()
-  const bump = (agent: string) => counts.set(agent, (counts.get(agent) ?? 0) + 1)
-  if (run && ACTIVE.has(run.status)) {
-    for (const t of run.tasks ?? []) for (const w of t.workers ?? []) if (w.status === 'working') bump(w.agent)
-  }
-  const open = new Map<string, string>()
-  const cutoff = Date.now() - 30 * 60 * 1000
-  for (const ev of interactive) {
-    if (Date.parse(ev.ts) < cutoff) continue
-    if (ev.type === 'worker.start') open.set(ev.toolUseId, ev.agent)
-    if (ev.type === 'worker.done') open.delete(ev.toolUseId)
-  }
-  for (const agent of open.values()) bump(agent)
-  return counts
-}
-
-export function orgLines(org: Json, roles: Json, run: Json | null, busy: Map<string, number>): OrgLine[] {
-  const busyDepts = new Set<string>(
-    run && ACTIVE.has(run.status) ? (run.tasks ?? []).filter((t: Json) => BUSY_TASK.has(t.status)).map((t: Json) => t.department) : [],
-  )
-  const out: OrgLine[] = [{ text: 'Board of Directors · chair, risk, quality', tone: 'board' }]
-  const execs: Json[] = org.executives ?? []
-  const walk = (exec: Json, depth: number) => {
-    const pad = '  '.repeat(depth)
-    out.push({ text: `${pad}★ ${exec.title}`, tone: 'exec' })
-    for (const d of (org.departments ?? []).filter((x: Json) => (x.reportsTo ?? 'ceo') === exec.id)) {
-      const isBusy = busyDepts.has(d.id)
-      out.push({ text: `${pad}  ${isBusy ? '●' : '·'} ${d.name} — ${d.manager ?? 'Manager'}`, tone: isBusy ? 'busyDept' : 'dept' })
-      for (const w of d.workers ?? []) {
-        const role = typeof w === 'string' ? roles[w] : w
-        if (!role?.title) continue
-        const n = busy.get(role.agent) ?? 0
-        out.push({ text: `${pad}      ${n ? `● ${role.title} ×${n}` : role.title}`, tone: n ? 'busy' : 'worker' })
-      }
-      const reviewers = (d.reviewers ?? []).map((r: Json) => (typeof r === 'string' ? roles[r]?.title : r?.title)).filter(Boolean)
-      if (reviewers.length) out.push({ text: `${pad}      review: ${reviewers.join(', ')}`, tone: 'review' })
-    }
-    for (const c of execs.filter(e => e.reportsTo === exec.id)) walk(c, depth + 1)
-  }
-  for (const root of execs.filter(e => !e.reportsTo)) walk(root, 0)
-  return out
-}
-
-function runView(s: Json): RunView {
-  const tasks: TaskRow[] = (s.tasks ?? []).map((t: Json) => ({
-    id: String(t.id), department: String(t.department), title: String(t.title), status: String(t.status),
-    working: (t.workers ?? []).filter((w: Json) => w.status === 'working').length, round: Number(t.round) || 0,
-  }))
-  return {
-    id: String(s.id), status: String(s.status), prompt: String(s.prompt ?? ''), goal: String(s.plan?.goal ?? ''),
-    questions: (s.plan?.questions ?? []).map(String), tasks,
-    board: s.board ? `${s.board.decision}: ${s.board.summary}` : '', error: String(s.error ?? ''), cost: Number(s.cost) || 0,
-  }
-}
-
-const clock = (ts: string) => String(ts ?? '').slice(11, 16)
-
-export function feedLine(ev: Json): string {
-  const t = clock(ev.ts)
-  const who = ev.source === 'interactive' ? 'chat ' : ''
-  switch (ev.type) {
-    case 'plan.ready': return `${t} CEO planned ${ev.tasks} task(s): ${ev.goal}`
-    case 'process.start': return `${t} ⚙ ${ev.label}`
-    case 'process.end': return `${t} ${ev.ok ? '■' : '✗'} ${ev.label}${ev.error ? ` — ${ev.error}` : ''}`
-    case 'slot.wait': return `${t} … ${ev.label} waiting for memory (${ev.freeMB} MB free)`
-    case 'worker.start': return `${t} ${who}→ ${ev.agent}: ${ev.description ?? ''}`
-    case 'worker.done': return `${t} ${who}${ev.status === 'failed' ? '✗' : '✓'} ${ev.agent}`
-    case 'review.verdict': return `${t} ⚖ ${ev.taskId} ${ev.verdict}${ev.score != null ? ` (${ev.score}/10)` : ''}: ${ev.summary ?? ''}`
-    case 'task.approved': return `${t} ✓ ${ev.taskId} approved`
-    case 'task.failed': return `${t} ✗ ${ev.taskId} failed: ${ev.error ?? ''}`
-    case 'board.decision': return `${t} Board: ${ev.decision} — ${ev.summary ?? ''}`
-    case 'run.end': return `${t} ■ run ${ev.status}${ev.error ? `: ${ev.error}` : ''}`
-    default: return `${t} ${ev.type}`
-  }
+/** The engine's bundled catalog.json with ~/.claude/company/catalog.json roles on top, as the engine layers them. */
+async function loadRoles($: Engine, pluginRoot: string, home: string): Promise<Json> {
+  const bundled = (await readJson($, join(pluginRoot, 'engine', 'catalog.json')))?.roles ?? {}
+  const user = (await readJson($, join(home, '.claude', 'company', 'catalog.json')))?.roles ?? {}
+  return { ...bundled, ...user }
 }
 
 // Per-load caches: the catalog rarely changes (a reload re-reads it), and the last good parse of each
@@ -176,37 +103,51 @@ async function readRunState($: Engine, root: string, id: string): Promise<Json |
   return fresh ?? cache.states.get(id) ?? null
 }
 
-async function buildSnapshot($: Engine, cwd: string, home: string): Promise<Snapshot> {
+async function buildSnapshot($: Engine, cwd: string, home: string, picked: string): Promise<Snapshot> {
   const { root, org } = await findRoot($, cwd)
   const name = root.split(/[\\/]/).filter(Boolean).pop() ?? root
   const empty: Snapshot = {
-    root, hasTeam: false, projectName: name, type: '', departments: 0, org: [], runs: [], run: null, feed: [], activeRuns: 0, working: 0,
+    root, hasTeam: false, projectName: name, type: '', departments: 0, org: [], runs: [], run: null,
+    isLatest: true, feed: [], activeRuns: 0, working: 0,
   }
   if (!org) return empty
-  cache.roles ??= (await readJson($, join(home, '.claude', 'company', 'catalog.json')))?.roles ?? null
+  cache.roles ??= await loadRoles($, live.pluginRoot, home)
   const roles = cache.roles ?? {}
   const ids = await listRunIds($, root)
   const states = (await Promise.all(ids.map(id => readRunState($, root, id)))).filter(Boolean) as Json[]
-  const current = states.find(s => ACTIVE.has(s.status)) ?? states[0] ?? null
-  const interactive = await readJsonlTail($, join(root, '.company', 'events.jsonl'))
+  const latest = states.find(s => ACTIVE_RUN.has(s.status)) ?? states[0] ?? null
+  const current = (picked && states.find(s => s.id === picked)) || latest
+  const chat = dedupeChatEvents(await readJsonlTail($, join(root, '.company', 'events.jsonl')))
   const runEvents = current ? await readJsonlTail($, join(root, '.company', 'runs', current.id, 'events.jsonl')) : []
-  const busy = busyAgents(current, interactive)
-  const feed = [...runEvents, ...interactive.filter(e => Date.now() - Date.parse(e.ts) < 3_600_000)]
-    .sort((a, b) => String(a.ts).localeCompare(String(b.ts))).slice(-FEED_LINES).map(feedLine)
-  const runs: RunBrief[] = states.map(s => ({ id: String(s.id), status: String(s.status), prompt: String(s.prompt ?? '') }))
+  const busy = busyAgents(latest, chat)
+  const now = Date.now()
+  const feed = [...runEvents, ...chat.filter(e => now - Date.parse(e.ts) < CHAT_FEED_MS)]
+    .sort((a, b) => String(a.ts).localeCompare(String(b.ts))).slice(-FEED_LINES).map(feedItem)
+  const deptNames = new Map<string, string>((org.departments ?? []).map((d: Json) => [String(d.id), String(d.name ?? d.id)]))
   return {
-    ...empty, hasTeam: true, projectName: String(org.project?.name || name), type: String(org.project?.type ?? ''), departments: (org.departments ?? []).length,
-    org: orgLines(org, roles, current, busy), runs, run: current ? runView(current) : null, feed,
-    activeRuns: states.filter(s => ACTIVE.has(s.status)).length,
+    ...empty,
+    hasTeam: true,
+    projectName: String(org.project?.name || name),
+    type: String(org.project?.type ?? ''),
+    departments: (org.departments ?? []).length,
+    org: orgGroups(org, roles, latest, busy),
+    runs: states.map(runBrief),
+    run: current ? runView(current, deptNames, roles) : null,
+    isLatest: !current || !latest || current.id === latest.id,
+    feed,
+    activeRuns: states.filter(s => ACTIVE_RUN.has(s.status)).length,
     working: [...busy.values()].reduce((a, b) => a + b, 0),
   }
 }
 
 // ---------- the hq CLI ----------
 
-async function runHq($: Engine, home: string, root: string, args: string[]): Promise<string> {
+/** The engine ships inside this plugin, at <plugin>/engine. */
+const enginePath = (...parts: string[]) => join(live.pluginRoot, 'engine', ...parts)
+
+async function runHq($: Engine, root: string, args: string[]): Promise<string> {
   try {
-    const res = await $.process.run(['node', join(home, '.claude', 'company', 'hq', 'bin', 'hq.js'), ...args], { cwd: root, timeoutMs: HQ_TIMEOUT_MS })
+    const res = await $.process.run(['node', enginePath('bin', 'hq.js'), ...args], { cwd: root, timeoutMs: HQ_TIMEOUT_MS })
     const out = `${res.stdout}${res.stderr}`.trim()
     return out || (res.exitCode === 0 ? 'Done.' : `hq exited ${res.exitCode}`)
   } catch (err) {
@@ -214,10 +155,57 @@ async function runHq($: Engine, home: string, root: string, args: string[]): Pro
   }
 }
 
-// ---------- module ----------
+// ---------- module state ----------
 
 // Per-load runtime state (a reload starts it over; the snapshot itself lives in $.state).
-const live = { cwd: '', home: '', timer: null as Timer | null, isRefreshing: false, last: '', noTeamUntil: 0, noticeAt: 0 }
+const live = {
+  cwd: '', home: '', pluginRoot: '', isInteractive: false,
+  timer: null as Timer | null, animation: null as Timer | null,
+  isRefreshing: false, last: '', noTeamUntil: 0, noticeAt: 0,
+  /** Chat delegation is logged only in interactive sessions the HQ engine did not start (it logs its own). */
+  isLoggingChat: false,
+  spawned: new Map<string, { toolUseId: string; description: string }>(),
+}
+
+// ---------- chat delegation → .company/events.jsonl ----------
+
+/**
+ * Hands one spawn or finish to the engine's delegation-log script, which finds the project's
+ * .company folder and appends a line. Fire-and-forget: logging never delays or fails the agent.
+ */
+function logDelegation($: Engine, record: { phase: 'start' | 'done'; agent: string; toolUseId: string; description: string; isFailed?: boolean }): void {
+  const input = {
+    hook_event_name: record.phase === 'start' ? 'PreToolUse' : 'PostToolUse',
+    tool_name: 'Agent',
+    cwd: live.cwd,
+    session_id: 'chat',
+    tool_use_id: record.toolUseId,
+    tool_input: { subagent_type: record.agent, description: record.description },
+    tool_response: { is_error: Boolean(record.isFailed) },
+  }
+  try {
+    void $.process.run(['node', enginePath('hooks', 'delegation-log.cjs')], { cwd: live.cwd, stdin: JSON.stringify(input), timeoutMs: 5000 })
+      .catch(() => undefined)
+  } catch {
+    // Logging is best-effort: a host that cannot run it must never break the spawn.
+  }
+}
+
+// ---------- refresh and animation ----------
+
+/** The spinner ticks only while a run is active in an interactive session; otherwise no timer runs. */
+function syncAnimation($: Engine, isActive: boolean): void {
+  if (isActive && live.isInteractive && !live.animation) {
+    try {
+      live.animation = $.clock.every(ANIMATION_MS, () => { void update($, frame, n => (n + 1) % 1000) })
+    } catch {
+      live.animation = null
+    }
+  } else if (!isActive && live.animation) {
+    live.animation.cancel?.()
+    live.animation = null
+  }
+}
 
 async function refresh($: Engine, isForced = false): Promise<void> {
   if (live.isRefreshing || !live.cwd) return
@@ -230,8 +218,9 @@ async function refresh($: Engine, isForced = false): Promise<void> {
       live.noticeAt = 0
       await update($, notice, () => '')
     }
-    const snap = await buildSnapshot($, live.cwd, live.home)
+    const snap = await buildSnapshot($, live.cwd, live.home, await read($, pickedRun))
     live.noTeamUntil = snap.hasTeam ? 0 : now + NO_TEAM_RECHECK_MS
+    syncAnimation($, snap.activeRuns > 0)
     const key = JSON.stringify(snap)
     if (key !== live.last) {
       live.last = key
@@ -244,28 +233,90 @@ async function refresh($: Engine, isForced = false): Promise<void> {
   }
 }
 
-async function act($: Engine, args: string[]): Promise<string> {
-  const snap = await read($, snapshot)
-  const text = await runHq($, live.home, snap?.root ?? live.cwd, args)
+async function say($: Engine, text: string): Promise<void> {
   await update($, notice, () => text.split('\n')[0] ?? '')
   live.noticeAt = Date.now()
+}
+
+async function act($: Engine, args: string[]): Promise<string> {
+  const snap = await read($, snapshot)
+  const text = await runHq($, snap?.root ?? live.cwd, args)
+  await say($, text)
   await refresh($, true)
   return text
 }
+
+/** Every button and box in the pane and band, bound to this session. */
+function actionsFor($: Engine, root: string): Actions {
+  return {
+    setTab: next => { void update($, tab, () => next) },
+    pick: id => { void update($, pickedRun, () => id).then(() => refresh($, true)) },
+    run: request => {
+      void update($, pickedRun, () => '')
+      void update($, tab, () => 'overview')
+      void act($, ['run', root, request])
+    },
+    hire: type => { void act($, ['init', root, '--background', ...(type && TEAM_TYPES.has(type) ? ['--type', type] : [])]) },
+    stop: runId => { void act($, ['stop', root, runId]) },
+    refresh: () => { void refresh($, true) },
+    toggleBand: () => { void update($, isBandHidden, v => !v) },
+    open: () => { void $.ui.open({ id: PANE, title: TITLE }) },
+  }
+}
+
+// ---------- module ----------
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     live.cwd = e.cwd
     live.home = (await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')) ?? ''
+    live.pluginRoot = $.plugin.root
+    live.isInteractive = e.isInteractive
+    live.isLoggingChat = e.isInteractive && !(await $.env.get('HQ_RUN_ID'))
     await $.command.register({ name: 'hq', description: 'Company HQ: open the company pane, or run / init / stop / status', argumentHint: '[run <request> | init [type] | stop | status]' })
     await refresh($)
     live.timer?.cancel?.()
-    try {
-      live.timer = $.clock.every(POLL_MS, () => { void refresh($) })
-    } catch {
-      live.timer = null // no timer on this host: the pane still shows the snapshot and refreshes on actions
+    live.timer = null
+    // Headless sessions (the engine's own claude -p processes among them) draw nothing, so they skip the poll.
+    if (e.isInteractive) {
+      try {
+        live.timer = $.clock.every(POLL_MS, () => { void refresh($) })
+      } catch {
+        live.timer = null // no timer on this host: the pane still shows the snapshot and refreshes on actions
+      }
     }
     return next(e)
+  })
+
+  on('agent.spawn', async ($, e, next) => {
+    const started = await next(e)
+    try {
+      const hasTeam = Boolean((await read($, snapshot))?.hasTeam)
+      if (live.isLoggingChat && hasTeam && !e.fork && started.deny === undefined && started.agentId) {
+        const description = String(e.description ?? '').slice(0, 120)
+        const toolUseId = e.tool_use_id || started.agentId
+        if (live.spawned.size >= MAX_OPEN_SPAWNS) live.spawned.delete(live.spawned.keys().next().value as string)
+        live.spawned.set(started.agentId, { toolUseId, description })
+        logDelegation($, { phase: 'start', agent: e.subagentType || 'general-purpose', toolUseId, description })
+      }
+    } catch {
+      // Never turn a successful spawn into a hook error.
+    }
+    return started
+  })
+
+  on('agent.report', async ($, e, next) => {
+    const reported = await next(e)
+    try {
+      const spawn = live.spawned.get(e.agentId)
+      if (spawn) {
+        live.spawned.delete(e.agentId)
+        logDelegation($, { phase: 'done', agent: e.subagentType || 'general-purpose', toolUseId: spawn.toolUseId, description: spawn.description, isFailed: e.status !== 'completed' })
+      }
+    } catch {
+      // Never turn a delivered report into a hook error.
+    }
+    return reported
   })
 
   on('command.run', { command: 'hq' }, async ($, e) => {
@@ -279,6 +330,7 @@ export const register: Register = on => {
     if (sub === 'run') {
       const request = e.args.trim().slice(3).trim()
       if (!request) return { text: 'Usage: /hq run <request>' }
+      await update($, pickedRun, () => '')
       const text = await act($, ['run', root, request])
       void $.ui.open({ id: PANE, title: TITLE })
       return { text, context: [`A Company HQ run was started in the background for: ${request}. Progress shows in the HQ pane.`] }
@@ -289,98 +341,30 @@ export const register: Register = on => {
       return { text: await act($, ['init', root, '--background', ...(type ? ['--type', type] : [])]) }
     }
     if (sub === 'stop') {
-      const active = snap?.run && ACTIVE.has(snap.run.status) ? snap.run.id : null
+      const active = snap?.run && ACTIVE_RUN.has(snap.run.status) && snap.isLatest ? snap.run.id : null
       return { text: active ? await act($, ['stop', root, active]) : 'No active run to stop.' }
     }
-    if (sub === 'status') return { text: await runHq($, live.home, root, ['status', root]) }
+    if (sub === 'status') return { text: await runHq($, root, ['status', root]) }
     return { text: USAGE }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const ui = $.ui.resolve(e) as unknown as Ui
     const snap = await read($, snapshot)
-    const msg = await read($, notice)
-    if (!snap) return <Text dimColor>Loading Claude HQ…</Text>
-    const run = snap.run
-    const isActive = Boolean(run && ACTIVE.has(run.status))
-    const taskRows = (run?.tasks ?? []).map(t => (
-      <Text color={t.status === 'failed' || t.status === 'blocked' ? 'error' : BUSY_TASK.has(t.status) ? 'success' : undefined}>
-        {ICON[t.status] ?? '·'} {t.id} {t.department}: {t.title}{t.working ? ` (${t.working} working)` : ''}{t.round ? ` r${t.round}` : ''}
-      </Text>
-    ))
-
-    if (e.props.placement === 'widget') {
-      return (
-        <Box flexDirection="column">
-          <Text bold>{snap.projectName} · {isActive ? `${run?.status}` : 'idle'}</Text>
-          {isActive ? taskRows : <Text dimColor>{snap.hasTeam ? `${snap.departments} departments ready` : 'No team yet'}</Text>}
-          {snap.working > 0 && <Text color="success">{snap.working} agent(s) working</Text>}
-        </Box>
-      )
+    const current = await read($, tab)
+    const state = {
+      tab: TABS.has(current) ? current : 'overview' as Tab,
+      frame: await read($, frame),
+      notice: await read($, notice),
+      isBandHidden: await read($, isBandHidden),
     }
-
-    if (!snap.hasTeam) {
-      return (
-        <Box flexDirection="column">
-          <Text bold>{snap.projectName}</Text>
-          <Text>No team has been hired for this project yet.</Text>
-          <Text dimColor>The org designer reads the repo and tailors a startup, research or software team (about 1–2 min).</Text>
-          <Box><Button key="hire" label="Hire a team" onPress={() => act($, ['init', snap.root, '--background'])} /></Box>
-          {msg && <Text color="warning">{msg}</Text>}
-        </Box>
-      )
-    }
-
-    return (
-      <Box flexDirection="column">
-        <Text bold>{snap.projectName} · {snap.type} · {snap.activeRuns ? `${snap.activeRuns} active run` : 'idle'}{snap.working ? ` · ${snap.working} agent(s) working` : ''}</Text>
-        <Box>
-          {isActive && run && <Button key="stop" label="Stop run" onPress={() => act($, ['stop', snap.root, run.id])} />}
-          <Button key="refresh" label="Refresh" onPress={() => refresh($, true)} />
-        </Box>
-        {msg && <Text color="warning">{msg}</Text>}
-        <Text dimColor> </Text>
-        <Text bold>Org chart</Text>
-        {snap.org.map(l => <Text color={TONE_COLOR[l.tone]} dimColor={l.tone === 'review'} bold={l.tone === 'exec' || l.tone === 'busyDept'}>{l.text}</Text>)}
-        <Text dimColor> </Text>
-        <Text bold>Runs</Text>
-        {snap.runs.length === 0 && <Text dimColor>No runs yet. Use /hq run &lt;request&gt;.</Text>}
-        {snap.runs.map(r => <Text color={ACTIVE.has(r.status) ? 'success' : undefined} dimColor={!ACTIVE.has(r.status)}>{r.id.slice(9, 15)} {r.status} — {r.prompt}</Text>)}
-        {run && (
-          <Box flexDirection="column">
-            <Text dimColor> </Text>
-            {run.goal && <Text bold>Goal: {run.goal}</Text>}
-            {run.questions.map(q => <Text color="warning">? {q}</Text>)}
-            {taskRows}
-            {run.board && <Text color="claude">Board — {run.board}</Text>}
-            {run.error && <Text color="error">✗ {run.error}</Text>}
-            <Text dimColor>cost ${run.cost.toFixed(2)} · report: .company/runs/{run.id}/report.md</Text>
-          </Box>
-        )}
-        <Text dimColor> </Text>
-        <Text bold>Activity</Text>
-        {snap.feed.length === 0 && <Text dimColor>Nothing yet. Delegation from this chat shows here too.</Text>}
-        {snap.feed.map(l => <Text dimColor={l.includes(' chat ')}>{l}</Text>)}
-      </Box>
-    )
+    return paneView(ui, snap, state, String(e.props.placement), actionsFor($, snap?.root ?? live.cwd))
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const snap = await read($, snapshot)
     if (e.props.hasSurvey || !snap?.hasTeam || (await read($, isBandHidden))) return next(e)
-    const { Box, Button, Text } = $.ui.resolve(e)
-    const run = snap.run
-    const isActive = Boolean(run && ACTIVE.has(run.status))
-    const done = run ? run.tasks.filter(t => t.status === 'approved').length : 0
-    const status = isActive && run
-      ? `▶ ${run.status} ${done}/${run.tasks.length} tasks${snap.working ? ` · ${snap.working} agent(s) working` : ''}`
-      : `${snap.departments} departments · idle`
-    return (
-      <Box>
-        <Text color={isActive ? 'success' : undefined} dimColor={!isActive}>HQ · {snap.projectName} · {status} </Text>
-        <Button key="open" label="Open" onPress={() => $.ui.open({ id: PANE, title: TITLE })} />
-        <Button key="hide" label="Hide" onPress={() => update($, isBandHidden, () => true)} />
-      </Box>
-    )
+    const ui = $.ui.resolve(e) as unknown as Ui
+    return bandView(ui, snap, await read($, frame), actionsFor($, snap.root))
   })
 }

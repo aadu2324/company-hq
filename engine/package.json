@@ -1,0 +1,12 @@
+{
+  "name": "company-hq-engine",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Company-style orchestration for Claude Code: CEO plans, departments delegate, reviewers gate, the Board signs off.",
+  "license": "MIT",
+  "bin": { "hq": "bin/hq.js" },
+  "scripts": { "test": "node --import ./test/env.mjs --test \"test/*.test.js\"" },
+  "engines": { "node": ">=20" },
+  "dependencies": { "ink": "5.2.1", "react": "18.3.1" }
+}

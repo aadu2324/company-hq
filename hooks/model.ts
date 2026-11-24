@@ -1,0 +1,283 @@
+/**
+ * Pure functions from the company's files to what the pane draws. Nothing here touches `$`,
+ * so every rule (stages, narration, colours, dedupe) is testable on plain objects.
+ */
+import type { DeptCard, ExecGroup, FeedItem, Hue, RunBrief, RunView, Stage, TaskRow, Verdict } from '../types'
+
+export type Json = Record<string, any>
+
+export const ACTIVE_RUN = new Set(['queued', 'planning', 'executing', 'board'])
+export const BUSY_TASK = new Set(['queued', 'running', 'working', 'revising', 'review'])
+export const STAGES: readonly { id: Stage; label: string }[] = [
+  { id: 'plan', label: 'Plan' },
+  { id: 'build', label: 'Build' },
+  { id: 'review', label: 'Review' },
+  { id: 'board', label: 'Board' },
+  { id: 'report', label: 'Report' },
+]
+
+type Look = { label: string; hue: Hue; icon: string }
+
+/** How each run status reads at a glance. */
+export const RUN_LOOK: Record<string, Look> = {
+  queued: { label: 'QUEUED', hue: 'inactive', icon: '◌' },
+  planning: { label: 'PLANNING', hue: 'planMode', icon: '◆' },
+  executing: { label: 'WORKING', hue: 'suggestion', icon: '▶' },
+  board: { label: 'BOARD REVIEW', hue: 'merged', icon: '⚖' },
+  done: { label: 'DONE', hue: 'success', icon: '✓' },
+  done_with_failures: { label: 'DONE WITH ISSUES', hue: 'warning', icon: '!' },
+  failed: { label: 'FAILED', hue: 'error', icon: '✗' },
+  stopped: { label: 'STOPPED', hue: 'inactive', icon: '■' },
+  idle: { label: 'IDLE', hue: 'inactive', icon: '·' },
+}
+
+/** How each task status reads at a glance. */
+export const TASK_LOOK: Record<string, Look> = {
+  pending: { label: 'WAITING', hue: 'inactive', icon: '○' },
+  queued: { label: 'QUEUED', hue: 'inactive', icon: '◌' },
+  running: { label: 'WORKING', hue: 'suggestion', icon: '●' },
+  working: { label: 'WORKING', hue: 'suggestion', icon: '●' },
+  review: { label: 'IN REVIEW', hue: 'merged', icon: '⚖' },
+  revising: { label: 'REVISING', hue: 'warning', icon: '↻' },
+  approved: { label: 'APPROVED', hue: 'success', icon: '✓' },
+  failed: { label: 'FAILED', hue: 'error', icon: '✗' },
+  blocked: { label: 'BLOCKED', hue: 'error', icon: '⊘' },
+  stopped: { label: 'STOPPED', hue: 'inactive', icon: '■' },
+}
+
+export const runLook = (status: string): Look => RUN_LOOK[status] ?? { label: status.toUpperCase(), hue: 'subtle', icon: '·' }
+export const taskLook = (status: string): Look => TASK_LOOK[status] ?? { label: status.toUpperCase(), hue: 'subtle', icon: '·' }
+
+// ---------- agents and roles ----------
+
+/** A role asks for agents best first; a spawned agent counts for it under any of those names, namespaced or not. */
+export function roleMatches(role: Json, agent: string): boolean {
+  const candidates = [role?.agent, role?.fallback].flat().filter((c): c is string => typeof c === 'string' && c.length > 0)
+  return candidates.some(c => agent === c || agent.endsWith(`:${c}`))
+}
+
+/**
+ * One line per spawn and per finish. A machine that also has the older settings.json delegation hook
+ * logs each chat spawn twice under the same tool_use_id; the first copy is kept.
+ */
+export function dedupeChatEvents(events: Json[]): Json[] {
+  const seen = new Set<string>()
+  return events.filter(ev => {
+    if (!ev.toolUseId) return true
+    const key = `${ev.type}:${ev.toolUseId}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+const CHAT_WINDOW_MS = 30 * 60 * 1000
+
+/** Agents working right now, by agent name: the active run's workers plus open chat spawns. */
+export function busyAgents(run: Json | null, chat: Json[], now = Date.now()): Map<string, number> {
+  const counts = new Map<string, number>()
+  const bump = (agent: string) => counts.set(agent, (counts.get(agent) ?? 0) + 1)
+  if (run && ACTIVE_RUN.has(run.status)) {
+    for (const t of run.tasks ?? []) for (const w of t.workers ?? []) if (w.status === 'working') bump(String(w.agent))
+  }
+  const open = new Map<string, string>()
+  for (const ev of chat) {
+    if (now - Date.parse(ev.ts) > CHAT_WINDOW_MS) continue
+    if (ev.type === 'worker.start') open.set(ev.toolUseId, ev.agent)
+    if (ev.type === 'worker.done') open.delete(ev.toolUseId)
+  }
+  for (const agent of open.values()) bump(String(agent))
+  return counts
+}
+
+const titleOf = (ref: unknown, roles: Json): string =>
+  typeof ref === 'string' ? String(roles[ref]?.title ?? ref) : String((ref as Json)?.title ?? '')
+
+/** The org chart as executive groups of department cards, with live worker counts. */
+export function orgGroups(org: Json, roles: Json, run: Json | null, busy: Map<string, number>): ExecGroup[] {
+  const busyDepts = new Set<string>(
+    run && ACTIVE_RUN.has(run.status) ? (run.tasks ?? []).filter((t: Json) => BUSY_TASK.has(t.status)).map((t: Json) => t.department) : [],
+  )
+  const execs: Json[] = org.executives ?? []
+  const groups: ExecGroup[] = []
+  const card = (d: Json): DeptCard => ({
+    id: String(d.id),
+    name: String(d.name ?? d.id),
+    manager: String(d.manager ?? 'Manager'),
+    isBusy: busyDepts.has(d.id),
+    workers: (d.workers ?? []).flatMap((w: unknown) => {
+      const role = typeof w === 'string' ? roles[w] : w
+      if (!role?.title) return []
+      let count = 0
+      for (const [agent, n] of busy) if (roleMatches(role, agent)) count += n
+      return [{ title: String(role.title), count }]
+    }),
+    reviewers: (d.reviewers ?? []).map((r: unknown) => titleOf(r, roles)).filter(Boolean),
+  })
+  const walk = (exec: Json, depth: number) => {
+    groups.push({
+      title: String(exec.title ?? exec.id),
+      depth,
+      departments: (org.departments ?? []).filter((d: Json) => (d.reportsTo ?? 'ceo') === exec.id).map(card),
+    })
+    for (const child of execs.filter(e => e.reportsTo === exec.id)) walk(child, depth + 1)
+  }
+  for (const root of execs.filter(e => !e.reportsTo)) walk(root, 0)
+  return groups
+}
+
+// ---------- runs ----------
+
+const LIMIT = /(hit your|usage|rate)[^.]*limit/i
+const RESETS = /resets?\s+([^·()]+?(\([^)]*\))?)\s*$/i
+
+/** Claude's usage limit stopped the work: say so plainly, with when it resets if the message says. */
+export function limitNote(texts: string[]): string {
+  const hit = texts.find(t => LIMIT.test(t))
+  if (!hit) return ''
+  const resets = RESETS.exec(hit.replace(/Â/g, ''))?.[1]?.trim()
+  return `Paused by your Claude usage limit${resets ? `, which resets ${resets}` : ''}. Run the request again after that.`
+}
+
+function verdictOf(v: Json | null | undefined): Verdict | null {
+  if (!v || typeof v !== 'object') return null
+  const decision = String(v.verdict ?? v.decision ?? '')
+  if (!decision) return null
+  return { decision, score: typeof v.score === 'number' ? v.score : null, summary: String(v.summary ?? '') }
+}
+
+function stageOf(status: string, tasks: TaskRow[]): Stage {
+  if (status === 'queued' || status === 'planning') return 'plan'
+  if (status === 'board') return 'board'
+  if (status === 'done' || status === 'done_with_failures') return 'report'
+  if (tasks.some(t => t.status === 'review' || t.status === 'revising')) return 'review'
+  if (tasks.length && tasks.every(t => ['approved', 'failed', 'blocked', 'stopped'].includes(t.status))) return 'board'
+  return 'build'
+}
+
+const quote = (s: string, max = 48) => `“${s.length > max ? `${s.slice(0, max - 1)}…` : s}”`
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
+
+/** One plain sentence saying what the company is doing right now. */
+export function narrate(status: string, tasks: TaskRow[], board: Verdict | null, error: string, limit: string): string {
+  if (limit) return limit
+  const failed = tasks.filter(t => t.status === 'failed').length
+  switch (status) {
+    case 'queued': return 'Waiting for a free Claude slot to start the run.'
+    case 'planning': return 'The CEO is reading the project and splitting the request into tasks.'
+    case 'board': return 'The Board is reviewing everything that was delivered.'
+    case 'done': return board?.decision === 'approve' || board?.decision === 'approve_with_conditions'
+      ? `Finished. The Board approved: ${board.summary}`
+      : `Finished. ${board ? `The Board said ${board.decision}: ${board.summary}` : 'All tasks are complete.'}`
+    case 'done_with_failures': return `Finished with problems: ${plural(failed, 'task')} failed. ${board ? `Board: ${board.decision}.` : ''}`.trim()
+    case 'failed': return `The run failed: ${error || 'see the activity log.'}`
+    case 'stopped': return 'Stopped. Nothing else will run.'
+    default: break
+  }
+  const doing = tasks.flatMap(t => {
+    if (t.status === 'running' || t.status === 'working') {
+      return [`${t.department} is working on ${quote(t.title)}${t.working.length ? ` with ${plural(t.working.length, 'agent')}` : ''}`]
+    }
+    if (t.status === 'review') return [`${t.reviewers.length ? t.reviewers.slice(0, 2).join(' and ') : 'Reviewers'} ${t.reviewers.length === 1 ? 'is' : 'are'} checking ${quote(t.title)}`]
+    if (t.status === 'revising') return [`${t.department} is fixing ${quote(t.title)} after review (round ${t.round})`]
+    return []
+  })
+  if (doing.length === 0) return 'Waiting for memory or a free slot before the next task starts.'
+  const extra = doing.length > 2 ? `, and ${doing.length - 2} more` : ''
+  return `${doing.slice(0, 2).join('; ')}${extra}.`
+}
+
+/** A run's state.json as the pane sees it. Department ids become their names. */
+export function runView(s: Json, deptNames: Map<string, string>, roles: Json): RunView {
+  const tasks: TaskRow[] = (s.tasks ?? []).map((t: Json) => ({
+    id: String(t.id),
+    department: deptNames.get(t.department) ?? String(t.department),
+    title: String(t.title ?? t.id),
+    status: String(t.status ?? 'pending'),
+    round: Number(t.round) || 0,
+    working: (t.workers ?? []).filter((w: Json) => w.status === 'working').map((w: Json) => String(w.agent)),
+    reviewers: (t.reviewers ?? []).map((r: unknown) => titleOf(r, roles)).filter(Boolean),
+    dependsOn: (t.dependsOn ?? []).map(String),
+    verdict: verdictOf(t.verdict),
+    error: String(t.error ?? ''),
+  }))
+  const status = String(s.status ?? 'queued')
+  const board = verdictOf(s.board)
+  const error = String(s.error ?? '')
+  const limit = limitNote([error, board?.summary ?? '', ...tasks.map(t => t.error)])
+  const stage = stageOf(status, tasks)
+  return {
+    id: String(s.id),
+    status,
+    prompt: String(s.prompt ?? ''),
+    goal: String(s.plan?.goal ?? ''),
+    questions: (s.plan?.questions ?? []).map(String),
+    tasks,
+    stage,
+    isStuck: ['failed', 'stopped', 'done_with_failures'].includes(status),
+    now: narrate(status, tasks, board, error, limit),
+    limitNote: limit,
+    board,
+    error,
+    cost: Number(s.cost) || 0,
+    startedAt: String(s.startedAt ?? s.createdAt ?? ''),
+    finishedAt: String(s.finishedAt ?? ''),
+    done: tasks.filter(t => t.status === 'approved').length,
+    failed: tasks.filter(t => t.status === 'failed' || t.status === 'blocked').length,
+  }
+}
+
+export const runBrief = (s: Json): RunBrief => ({
+  id: String(s.id), status: String(s.status), prompt: String(s.prompt ?? ''), startedAt: String(s.startedAt ?? s.createdAt ?? ''),
+})
+
+/** "4m", "1h 12m": how long a run has been going, or went. */
+export function elapsed(from: string, to: string, now = Date.now()): string {
+  const start = Date.parse(from)
+  if (!Number.isFinite(start)) return ''
+  const end = to ? Date.parse(to) : now
+  const mins = Math.max(0, Math.round((end - start) / 60000))
+  return mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h ${mins % 60}m`
+}
+
+/** A local HH:MM for an ISO time. */
+export function clock(ts: string): string {
+  const d = new Date(ts)
+  return Number.isFinite(d.getTime()) ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : ''
+}
+
+// ---------- activity ----------
+
+/** One event as a coloured line with an icon. */
+export function feedItem(ev: Json): FeedItem {
+  const isChat = ev.source === 'interactive'
+  const at = (icon: string, hue: Hue, text: string): FeedItem => ({ time: clock(ev.ts), icon, hue, text, isChat })
+  switch (ev.type) {
+    case 'run.start': return at('▶', 'claude', 'Run started')
+    case 'plan.ready': return at('◆', 'planMode', `CEO planned ${plural(Number(ev.tasks) || 0, 'task')}: ${ev.goal ?? ''}`)
+    case 'process.start': return at('⚙', 'subtle', `Started ${ev.label ?? 'a process'}`)
+    case 'process.end': return ev.ok ? at('■', 'subtle', `Finished ${ev.label ?? 'a process'}`) : at('✗', 'error', `${ev.label ?? 'A process'} stopped: ${ev.error ?? 'error'}`)
+    case 'slot.wait': return at('…', 'warning', `${ev.label ?? 'Next task'} is waiting for memory (${ev.freeMB} MB free)`)
+    case 'worker.start': return at('→', isChat ? 'remember' : 'suggestion', `${ev.agent} started: ${ev.description ?? ''}`)
+    case 'worker.done': return ev.status === 'failed' ? at('✗', 'error', `${ev.agent} failed`) : at('✓', 'success', `${ev.agent} finished${ev.description ? `: ${ev.description}` : ''}`)
+    case 'review.verdict': return at('⚖', ev.verdict === 'approve' ? 'success' : ev.verdict === 'reject' ? 'error' : 'warning',
+      `${ev.taskId} ${ev.verdict}${ev.score != null ? ` ${ev.score}/10` : ''}: ${ev.summary ?? ''}`)
+    case 'task.approved': return at('✓', 'success', `${ev.taskId} approved`)
+    case 'task.failed': return at('✗', 'error', `${ev.taskId} failed: ${ev.error ?? ''}`)
+    case 'task.blocked': return at('⊘', 'error', `${ev.taskId} blocked${ev.reason ? `: ${ev.reason}` : ' by a failed dependency'}`)
+    case 'board.decision': return at('⚖', ev.decision === 'reject' ? 'error' : 'merged', `Board: ${ev.decision}: ${ev.summary ?? ''}`)
+    case 'run.end': return at('■', ev.status === 'done' ? 'success' : 'warning', `Run ${String(ev.status).replace(/_/g, ' ')}${ev.error ? `: ${ev.error}` : ''}`)
+    default: return at('·', 'subtle', String(ev.type))
+  }
+}
+
+/** A text bar for places without a Progress element (the band): ▰▰▰▱▱. */
+export function blocks(done: number, total: number, width = 8): string {
+  if (total <= 0) return '▱'.repeat(width)
+  const filled = Math.round((Math.min(done, total) / total) * width)
+  return `${'▰'.repeat(filled)}${'▱'.repeat(width - filled)}`
+}
+
+/** Spinner frames for an active run; one advances per animation tick. */
+export const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const
+export const PULSE = ['●', '◉', '○', '◉'] as const

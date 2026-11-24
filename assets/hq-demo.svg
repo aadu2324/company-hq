@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="590" viewBox="0 0 880 590" role="img" aria-label="Animated preview of the Claude HQ pane during one company run">
+<style>text{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace}@keyframes w0_20{0%,19.4%{opacity:1}20%,100%{opacity:0}}.w0_20{animation:w0_20 14s linear infinite}@keyframes w20_60{0%,19.4%{opacity:0}20%,59.4%{opacity:1}60%,100%{opacity:0}}.w20_60{animation:w20_60 14s linear infinite}@keyframes w60_80{0%,59.4%{opacity:0}60%,79.4%{opacity:1}80%,100%{opacity:0}}.w60_80{animation:w60_80 14s linear infinite}@keyframes w80_100{0%,79.4%{opacity:0}80%,98.8%{opacity:1}100%{opacity:0}}.w80_100{animation:w80_100 14s linear infinite}@keyframes st0{0%,19.4%{fill:#d97757}20%,98.8%{fill:#78c88c}100%{fill:#d97757}}.st0{animation:st0 14s linear infinite}@keyframes st1{0%,19.4%{fill:#6b645f}20%,49.4%{fill:#d97757}50%,98.8%{fill:#78c88c}100%{fill:#6b645f}}.st1{animation:st1 14s linear infinite}@keyframes st2{0%,49.4%{fill:#6b645f}50%,59.4%{fill:#d97757}60%,98.8%{fill:#78c88c}100%{fill:#6b645f}}.st2{animation:st2 14s linear infinite}@keyframes st3{0%,59.4%{fill:#6b645f}60%,79.4%{fill:#d97757}80%,98.8%{fill:#78c88c}100%{fill:#6b645f}}.st3{animation:st3 14s linear infinite}@keyframes st4{0%,79.4%{fill:#6b645f}80%,79.9%{fill:#d97757}80.5%,98.8%{fill:#78c88c}100%{fill:#6b645f}}.st4{animation:st4 14s linear infinite}@keyframes w0_35{0%,34.4%{opacity:1}35%,100%{opacity:0}}.w0_35{animation:w0_35 14s linear infinite}@keyframes w35_45{0%,34.4%{opacity:0}35%,44.4%{opacity:1}45%,100%{opacity:0}}.w35_45{animation:w35_45 14s linear infinite}@keyframes w45_55{0%,44.4%{opacity:0}45%,54.4%{opacity:1}55%,100%{opacity:0}}.w45_55{animation:w45_55 14s linear infinite}@keyframes w55_100{0%,54.4%{opacity:0}55%,98.8%{opacity:1}100%{opacity:0}}.w55_100{animation:w55_100 14s linear infinite}@keyframes bar{0%,34.4%{transform:scaleX(0.02)}35%,44.4%{transform:scaleX(0.333)}45%,54.4%{transform:scaleX(0.667)}55%,98.8%{transform:scaleX(1)}100%{transform:scaleX(0.02)}}.bar{transform-box:fill-box;transform-origin:left center;animation:bar 14s ease-in-out infinite}@keyframes w20_35{0%,19.4%{opacity:0}20%,34.4%{opacity:1}35%,100%{opacity:0}}.w20_35{animation:w20_35 14s linear infinite}@keyframes w35_100{0%,34.4%{opacity:0}35%,98.8%{opacity:1}100%{opacity:0}}.w35_100{animation:w35_100 14s linear infinite}@keyframes w20_38{0%,19.4%{opacity:0}20%,37.4%{opacity:1}38%,100%{opacity:0}}.w20_38{animation:w20_38 14s linear infinite}@keyframes w38_45{0%,37.4%{opacity:0}38%,44.4%{opacity:1}45%,100%{opacity:0}}.w38_45{animation:w38_45 14s linear infinite}@keyframes w45_100{0%,44.4%{opacity:0}45%,98.8%{opacity:1}100%{opacity:0}}.w45_100{animation:w45_100 14s linear infinite}@keyframes w0_28{0%,27.4%{opacity:1}28%,100%{opacity:0}}.w0_28{animation:w0_28 14s linear infinite}@keyframes w28_48{0%,27.4%{opacity:0}28%,47.4%{opacity:1}48%,100%{opacity:0}}.w28_48{animation:w28_48 14s linear infinite}@keyframes w48_55{0%,47.4%{opacity:0}48%,54.4%{opacity:1}55%,100%{opacity:0}}.w48_55{animation:w48_55 14s linear infinite}@keyframes w4_100{0%,3.4%{opacity:0}4%,98.8%{opacity:1}100%{opacity:0}}.w4_100{animation:w4_100 14s linear infinite}@keyframes w36_100{0%,35.4%{opacity:0}36%,98.8%{opacity:1}100%{opacity:0}}.w36_100{animation:w36_100 14s linear infinite}@keyframes w40_100{0%,39.4%{opacity:0}40%,98.8%{opacity:1}100%{opacity:0}}.w40_100{animation:w40_100 14s linear infinite}@keyframes w62_100{0%,61.4%{opacity:0}62%,98.8%{opacity:1}100%{opacity:0}}.w62_100{animation:w62_100 14s linear infinite}@keyframes w82_100{0%,81.4%{opacity:0}82%,98.8%{opacity:1}100%{opacity:0}}.w82_100{animation:w82_100 14s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.spin{transform-box:view-box;transform-origin:0 0;animation:spin 0.9s linear infinite}@media (prefers-reduced-motion:reduce){*{animation:none!important}}</style>
+<rect width="880" height="590" rx="14" fill="#1c1917"/>
+<rect x="0.5" y="0.5" width="879" height="589" rx="14" fill="none" stroke="#3a3532"/>
+<circle cx="22" cy="20" r="6" fill="#ef6b6b"/>
+<circle cx="42" cy="20" r="6" fill="#e5b45a"/>
+<circle cx="62" cy="20" r="6" fill="#78c88c"/>
+<text x="440" y="25" fill="#a8a29e" font-size="12.5" font-weight="400" text-anchor="middle">Claude Code  ·  HQ pane</text>
+<rect x="20" y="44" width="840" height="72" rx="10" fill="#24201e" stroke="#d97757"/>
+<text x="38" y="74" fill="#d97757" font-size="16" font-weight="700" text-anchor="start">◆ Claude HQ</text>
+<text x="160" y="74" fill="#f5eee6" font-size="16" font-weight="700" text-anchor="start">Acme</text>
+<text x="212" y="74" fill="#a8a29e" font-size="13" font-weight="400" text-anchor="start">startup</text>
+<g transform="translate(694 68)"><circle r="7" fill="none" stroke="#3a3532" stroke-width="2.5"/><path d="M0 -7 A7 7 0 0 1 7 0" fill="none" stroke="#d97757" stroke-width="2.5" stroke-linecap="round" class="spin"/></g>
+<g class="w0_20"><rect x="714" y="59" width="128" height="21" rx="10.5" fill="#4fc1c9"/><text x="778" y="74" fill="#1c1917" font-size="11.5" font-weight="700" text-anchor="middle">PLANNING</text></g>
+<g class="w20_60"><rect x="714" y="59" width="128" height="21" rx="10.5" fill="#6ea8fe"/><text x="778" y="74" fill="#1c1917" font-size="11.5" font-weight="700" text-anchor="middle">WORKING</text></g>
+<g class="w60_80"><rect x="714" y="59" width="128" height="21" rx="10.5" fill="#b392f0"/><text x="778" y="74" fill="#1c1917" font-size="11.5" font-weight="700" text-anchor="middle">BOARD REVIEW</text></g>
+<g class="w80_100"><rect x="714" y="59" width="128" height="21" rx="10.5" fill="#78c88c"/><text x="778" y="74" fill="#1c1917" font-size="11.5" font-weight="700" text-anchor="middle">DONE</text></g>
+<text x="38" y="100" fill="#a8a29e" font-size="12.5" font-weight="400" text-anchor="start" class="w0_20">1 agent working  ·  0/3 tasks approved  ·  $0.04  ·  1m</text>
+<text x="38" y="100" fill="#a8a29e" font-size="12.5" font-weight="400" text-anchor="start" class="w20_60">4 agents working  ·  tasks moving  ·  $0.31  ·  6m</text>
+<text x="38" y="100" fill="#a8a29e" font-size="12.5" font-weight="400" text-anchor="start" class="w60_80">1 agent working  ·  3/3 tasks approved  ·  $0.52  ·  11m</text>
+<text x="38" y="100" fill="#a8a29e" font-size="12.5" font-weight="400" text-anchor="start" class="w80_100">no agents working  ·  3/3 tasks approved  ·  $0.58  ·  12m</text>
+<rect x="20" y="128" width="85.2" height="26" rx="6" fill="#d97757" stroke="#d97757"/>
+<text x="62.6" y="145.5" fill="#1c1917" font-size="12.5" font-weight="700" text-anchor="middle">Overview</text>
+<rect x="113.2" y="128" width="68.4" height="26" rx="6" fill="none" stroke="#3a3532"/>
+<text x="147.4" y="145.5" fill="#a8a29e" font-size="12.5" font-weight="400" text-anchor="middle">Team 8</text>
+<rect x="189.60000000000002" y="128" width="76.80000000000001" height="26" rx="6" fill="none" stroke="#3a3532"/>
+<text x="228.00000000000003" y="145.5" fill="#a8a29e" font-size="12.5" font-weight="400" text-anchor="middle">Tasks 3</text>
+<rect x="274.40000000000003" y="128" width="85.2" height="26" rx="6" fill="none" stroke="#3a3532"/>
+<text x="317.00000000000006" y="145.5" fill="#a8a29e" font-size="12.5" font-weight="400" text-anchor="middle">Activity</text>
+<circle cx="36" cy="182" r="6" class="st0"/>
+<text x="50" y="187" font-size="14" font-weight="700" class="st0">Plan</text>
+<rect x="122" y="181" width="66" height="2" rx="1" class="st0"/>
+<circle cx="208" cy="182" r="6" class="st1"/>
+<text x="222" y="187" font-size="14" font-weight="700" class="st1">Build</text>
+<rect x="294" y="181" width="66" height="2" rx="1" class="st1"/>
+<circle cx="380" cy="182" r="6" class="st2"/>
+<text x="394" y="187" font-size="14" font-weight="700" class="st2">Review</text>
+<rect x="466" y="181" width="66" height="2" rx="1" class="st2"/>
+<circle cx="552" cy="182" r="6" class="st3"/>
+<text x="566" y="187" font-size="14" font-weight="700" class="st3">Board</text>
+<rect x="638" y="181" width="66" height="2" rx="1" class="st3"/>
+<circle cx="724" cy="182" r="6" class="st4"/>
+<text x="738" y="187" font-size="14" font-weight="700" class="st4">Report</text>
+<rect x="20" y="204" width="840" height="64" rx="10" fill="#24201e" stroke="#6ea8fe"/>
+<text x="38" y="228" fill="#6ea8fe" font-size="13.5" font-weight="700" text-anchor="start">⠿ Now</text>
+<text x="38" y="252" fill="#f5eee6" font-size="14" font-weight="400" text-anchor="start" class="w0_20">The CEO is reading the project and splitting the request into 3 tasks.</text>
+<text x="38" y="252" fill="#f5eee6" font-size="14" font-weight="400" text-anchor="start" class="w20_60">Engineering is building “Public API” with 2 agents; Marketing is drafting “Launch emails”.</text>
+<text x="38" y="252" fill="#f5eee6" font-size="14" font-weight="400" text-anchor="start" class="w60_80">The Board is reviewing everything that was delivered.</text>
+<text x="38" y="252" fill="#f5eee6" font-size="14" font-weight="400" text-anchor="start" class="w80_100">Finished. The Board approved: ship the API and send the drafts for your review.</text>
+<text x="20" y="294" fill="#a8a29e" font-size="12.5" font-weight="400" text-anchor="start">Tasks approved</text>
+<text x="860" y="294" fill="#a8a29e" font-size="12.5" font-weight="400" text-anchor="end" class="w0_35">0 of 3</text>
+<text x="860" y="294" fill="#a8a29e" font-size="12.5" font-weight="400" text-anchor="end" class="w35_45">1 of 3</text>
+<text x="860" y="294" fill="#a8a29e" font-size="12.5" font-weight="400" text-anchor="end" class="w45_55">2 of 3</text>
+<text x="860" y="294" fill="#a8a29e" font-size="12.5" font-weight="400" text-anchor="end" class="w55_100">3 of 3</text>
+<rect x="20" y="302" width="840" height="10" rx="5" fill="#3a3532"/>
+<rect x="20" y="302" width="840" height="10" rx="5" fill="#78c88c" class="bar"/>
+<text x="20" y="344" fill="#f5eee6" font-size="14" font-weight="700" text-anchor="start">Tasks</text>
+<g class="w0_20"><rect x="28" y="357" width="96" height="21" rx="10.5" fill="#8a827c"/><text x="76" y="372" fill="#1c1917" font-size="11.5" font-weight="700" text-anchor="middle">WAITING</text></g>
+<g class="w20_35"><rect x="28" y="357" width="96" height="21" rx="10.5" fill="#6ea8fe"/><text x="76" y="372" fill="#1c1917" font-size="11.5" font-weight="700" text-anchor="middle">WORKING</text></g>
+<g class="w35_100"><rect x="28" y="357" width="96" height="21" rx="10.5" fill="#78c88c"/><text x="76" y="372" fill="#1c1917" font-size="11.5" font-weight="700" text-anchor="middle">APPROVED</text></g>
+<text x="138" y="372" fill="#f5eee6" font-size="14" font-weight="700" text-anchor="start">Build the public API</text>
+<text x="322" y="372" fill="#a8a29e" font-size="13" font-weight="400" text-anchor="start">· Engineering</text>
+<g class="w0_20"><rect x="28" y="385" width="96" height="21" rx="10.5" fill="#8a827c"/><text x="76" y="400" fill="#1c1917" font-size="11.5" font-weight="700" text-anchor="middle">WAITING</text></g>
+<g class="w20_38"><rect x="28" y="385" width="96" height="21" rx="10.5" fill="#6ea8fe"/><text x="76" y="400" fill="#1c1917" font-size="11.5" font-weight="700" text-anchor="middle">WORKING</text></g>
+<g class="w38_45"><rect x="28" y="385" width="96" height="21" rx="10.5" fill="#e5b45a"/><text x="76" y="400" fill="#1c1917" font-size="11.5" font-weight="700" text-anchor="middle">REVISING</text></g>
+<g class="w45_100"><rect x="28" y="385" width="96" height="21" rx="10.5" fill="#78c88c"/><text x="76" y="400" fill="#1c1917" font-size="11.5" font-weight="700" text-anchor="middle">APPROVED</text></g>
+<text x="138" y="400" fill="#f5eee6" font-size="14" font-weight="700" text-anchor="start">Launch email sequence</text>
+<text x="330.6" y="400" fill="#a8a29e" font-size="13" font-weight="400" text-anchor="start">· Sales &amp; Outreach</text>
+<g class="w0_28"><rect x="28" y="413" width="96" height="21" rx="10.5" fill="#8a827c"/><text x="76" y="428" fill="#1c1917" font-size="11.5" font-weight="700" text-anchor="middle">WAITING</text></g>
+<g class="w28_48"><rect x="28" y="413" width="96" height="21" rx="10.5" fill="#6ea8fe"/><text x="76" y="428" fill="#1c1917" font-size="11.5" font-weight="700" text-anchor="middle">WORKING</text></g>
+<g class="w48_55"><rect x="28" y="413" width="96" height="21" rx="10.5" fill="#b392f0"/><text x="76" y="428" fill="#1c1917" font-size="11.5" font-weight="700" text-anchor="middle">IN REVIEW</text></g>
+<g class="w55_100"><rect x="28" y="413" width="96" height="21" rx="10.5" fill="#78c88c"/><text x="76" y="428" fill="#1c1917" font-size="11.5" font-weight="700" text-anchor="middle">APPROVED</text></g>
+<text x="138" y="428" fill="#f5eee6" font-size="14" font-weight="700" text-anchor="start">Landing page</text>
+<text x="253.2" y="428" fill="#a8a29e" font-size="13" font-weight="400" text-anchor="start">· Web &amp; Landing Pages</text>
+<text x="20" y="476" fill="#f5eee6" font-size="14" font-weight="700" text-anchor="start">Latest</text>
+<g class="w4_100"><text x="28" y="500" fill="#a8a29e" font-size="12.5" font-weight="400" text-anchor="start">10:16</text><text x="76" y="500" fill="#4fc1c9" font-size="13" font-weight="400" text-anchor="start">◆</text><text x="96" y="500" fill="#f5eee6" font-size="12.5" font-weight="400" text-anchor="start">CEO planned 3 tasks: API, launch emails, landing page</text></g>
+<g class="w36_100"><text x="28" y="518" fill="#a8a29e" font-size="12.5" font-weight="400" text-anchor="start">10:21</text><text x="76" y="518" fill="#78c88c" font-size="13" font-weight="400" text-anchor="start">✓</text><text x="96" y="518" fill="#f5eee6" font-size="12.5" font-weight="400" text-anchor="start">T1 approve 9/10: endpoints, tests and docs complete</text></g>
+<g class="w40_100"><text x="28" y="536" fill="#a8a29e" font-size="12.5" font-weight="400" text-anchor="start">10:24</text><text x="76" y="536" fill="#e5b45a" font-size="13" font-weight="400" text-anchor="start">⚖</text><text x="96" y="536" fill="#f5eee6" font-size="12.5" font-weight="400" text-anchor="start">T2 revise 6/10: add the unsubscribe footer and sender address</text></g>
+<g class="w62_100"><text x="28" y="554" fill="#a8a29e" font-size="12.5" font-weight="400" text-anchor="start">10:29</text><text x="76" y="554" fill="#b392f0" font-size="13" font-weight="400" text-anchor="start">⚖</text><text x="96" y="554" fill="#f5eee6" font-size="12.5" font-weight="400" text-anchor="start">Board convened: chair, risk, quality</text></g>
+<g class="w82_100"><text x="28" y="572" fill="#a8a29e" font-size="12.5" font-weight="400" text-anchor="start">10:31</text><text x="76" y="572" fill="#78c88c" font-size="13" font-weight="400" text-anchor="start">✓</text><text x="96" y="572" fill="#f5eee6" font-size="12.5" font-weight="400" text-anchor="start">Board: approve. Report written to .company/runs/…/report.md</text></g>
+</svg>

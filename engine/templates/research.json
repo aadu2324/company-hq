@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "project": { "type": "research" },
+  "executives": [
+    { "id": "ceo", "title": "Program Director", "role": "ceo" },
+    { "id": "cto", "title": "Chief Scientist", "role": "cto", "reportsTo": "ceo" },
+    { "id": "gc",  "title": "Ethics & Compliance Officer", "role": "general-counsel", "reportsTo": "ceo" }
+  ],
+  "departments": [
+    { "id": "literature", "name": "Literature & Novelty", "reportsTo": "cto", "manager": "Literature Lead",
+      "charter": "Maps prior work, verifies every citation, and states exactly how this work differs.",
+      "workers": ["literature-scout"], "reviewers": ["peer-reviewer", "qa"] },
+    { "id": "methodology", "name": "Methodology", "reportsTo": "cto", "manager": "Methods Lead",
+      "charter": "Hypotheses, baselines, ablations, metrics, splits and statistics that survive peer review and fit the owner's hardware.",
+      "workers": ["methodologist", "literature-scout"], "reviewers": ["peer-reviewer"] },
+    { "id": "experiments", "name": "Experiments", "reportsTo": "cto", "manager": "Research Engineering Lead",
+      "charter": "Reproducible, memory-safe implementations and runs; never reports a result that was not run.",
+      "workers": ["experimentalist", "builder", "tdd"], "reviewers": ["code-reviewer", "mle-reviewer"] },
+    { "id": "analysis", "name": "Analysis", "reportsTo": "cto", "manager": "Analysis Lead",
+      "charter": "Correct statistics, honest effect sizes, publication-quality figures.",
+      "workers": ["data-analyst"], "reviewers": ["peer-reviewer"] },
+    { "id": "writing", "name": "Writing", "reportsTo": "ceo", "manager": "Writing Lead",
+      "charter": "Manuscripts, rebuttals and grants within venue limits, every claim mapped to evidence.",
+      "workers": ["paper-writer", "literature-scout"], "reviewers": ["peer-reviewer", "qa"] },
+    { "id": "outreach", "name": "Outreach", "reportsTo": "ceo", "manager": "Outreach Lead",
+      "charter": "Cold emails to collaborators, authors, labs and data owners; venue and funding scouting. Drafts only.",
+      "workers": ["outreach-writer"], "reviewers": ["legal", "qa"] },
+    { "id": "compliance", "name": "Ethics & Compliance", "reportsTo": "gc", "manager": "Compliance Lead",
+      "charter": "Data licences, human-subjects/IRB, dual-use, authorship and disclosure.",
+      "workers": ["legal-counsel"], "reviewers": ["qa"] }
+  ],
+  "policies": { "maxParallelTasks": 2, "reviewRounds": 2, "outbound": "draft-only", "boardSignoff": true }
+}

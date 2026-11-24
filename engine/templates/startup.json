@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "project": { "type": "startup" },
+  "executives": [
+    { "id": "ceo", "title": "CEO", "role": "ceo" },
+    { "id": "cto", "title": "CTO", "role": "cto", "reportsTo": "ceo" },
+    { "id": "cmo", "title": "CMO", "role": "campaign-strategist", "reportsTo": "ceo" },
+    { "id": "gc",  "title": "General Counsel", "role": "general-counsel", "reportsTo": "ceo" }
+  ],
+  "departments": [
+    { "id": "product", "name": "Product", "reportsTo": "ceo", "manager": "Head of Product",
+      "charter": "Owns what gets built and why: specs, priorities, customer and market evidence.",
+      "workers": ["product-manager", "market-analyst"], "reviewers": ["qa"] },
+    { "id": "engineering", "name": "Engineering", "reportsTo": "cto", "manager": "Engineering Manager",
+      "charter": "Builds and maintains the product with tests, in the existing architecture.",
+      "workers": ["planner", "architect", "builder", "tdd", "e2e", "docs"], "reviewers": ["code-reviewer", "security-reviewer"] },
+    { "id": "marketing", "name": "Marketing", "reportsTo": "cmo", "manager": "Marketing Manager",
+      "charter": "Positioning, messaging, campaigns and SEO grounded in real customer problems.",
+      "workers": ["campaign-strategist", "copywriter", "seo"], "reviewers": ["qa", "legal"] },
+    { "id": "web", "name": "Web & Landing Pages", "reportsTo": "cmo", "manager": "Web Lead",
+      "charter": "Landing pages and the marketing site: fast, accessible, on-message, converting.",
+      "workers": ["landing-page-dev", "copywriter", "seo"], "reviewers": ["code-reviewer", "qa", "legal"] },
+    { "id": "outreach", "name": "Sales & Outreach", "reportsTo": "cmo", "manager": "Head of Outreach",
+      "charter": "Prospect research and cold email sequences for customers, partners and investors. Drafts only.",
+      "workers": ["outreach-writer", "market-analyst"], "reviewers": ["legal", "qa"] },
+    { "id": "media", "name": "Media & Social", "reportsTo": "cmo", "manager": "Media Lead",
+      "charter": "Social profiles, content calendar, press kit and media pages. Drafts only.",
+      "workers": ["media-manager", "copywriter"], "reviewers": ["legal", "qa"] },
+    { "id": "finance", "name": "Finance", "reportsTo": "ceo", "manager": "Finance Lead",
+      "charter": "Pricing, unit economics, budgets, runway and fundraising numbers.",
+      "workers": ["finance-analyst", "market-analyst"], "reviewers": ["qa"] },
+    { "id": "legal", "name": "Legal & Compliance", "reportsTo": "gc", "manager": "Legal Lead",
+      "charter": "Privacy policy, terms, licences, regulatory and claims review.",
+      "workers": ["legal-counsel"], "reviewers": ["qa"] }
+  ],
+  "policies": { "maxParallelTasks": 2, "reviewRounds": 2, "outbound": "draft-only", "boardSignoff": true }
+}

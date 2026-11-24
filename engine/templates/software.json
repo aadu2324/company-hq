@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "project": { "type": "software" },
+  "executives": [
+    { "id": "ceo", "title": "CEO", "role": "ceo" },
+    { "id": "cto", "title": "CTO", "role": "cto", "reportsTo": "ceo" },
+    { "id": "gc",  "title": "General Counsel", "role": "general-counsel", "reportsTo": "ceo" }
+  ],
+  "departments": [
+    { "id": "product", "name": "Product", "reportsTo": "ceo", "manager": "Head of Product",
+      "charter": "Specs and priorities with testable acceptance criteria.",
+      "workers": ["product-manager"], "reviewers": ["qa"] },
+    { "id": "engineering", "name": "Engineering", "reportsTo": "cto", "manager": "Engineering Manager",
+      "charter": "Builds features and fixes with tests, in the existing architecture.",
+      "workers": ["planner", "architect", "builder", "tdd", "e2e"], "reviewers": ["code-reviewer", "security-reviewer"] },
+    { "id": "docs", "name": "Documentation", "reportsTo": "cto", "manager": "Docs Lead",
+      "charter": "READMEs, guides and codemaps that match the code.",
+      "workers": ["docs"], "reviewers": ["qa"] },
+    { "id": "legal", "name": "Legal & Compliance", "reportsTo": "gc", "manager": "Legal Lead",
+      "charter": "Licences, privacy and data-handling review.",
+      "workers": ["legal-counsel"], "reviewers": ["qa"] }
+  ],
+  "policies": { "maxParallelTasks": 2, "reviewRounds": 2, "outbound": "draft-only", "boardSignoff": true }
+}
