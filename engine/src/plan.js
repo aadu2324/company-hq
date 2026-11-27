@@ -21,11 +21,16 @@ export const PLAN_SCHEMA = {
           deliverable: { type: 'string' },
           dependsOn: { type: 'array', items: { type: 'string' } },
           reviewers: { type: 'array', items: { type: 'string' } },
+          // A question for the owner, asked once this task is approved: the run pauses for the answer and
+          // the CEO plans the rest around it. Empty for no checkpoint.
+          checkpoint: { type: 'string' },
         },
       },
     },
   },
 };
+
+const MAX_CHECKPOINT = 600;
 
 export const VERDICT_SCHEMA = {
   type: 'object',
@@ -82,16 +87,18 @@ const DEFAULT_MAX_REVIEWERS = 5;
  * Checks and normalises the CEO's plan. Each task's review panel is the CEO's own picks first, then
  * the department's standing reviewers, capped at maxReviewers (the lean profile keeps it to 2).
  */
-export function validatePlan(plan, org, catalog, { maxReviewers = DEFAULT_MAX_REVIEWERS, maxTasks = MAX_TASKS } = {}) {
+export function validatePlan(plan, org, catalog, { maxReviewers = DEFAULT_MAX_REVIEWERS, maxTasks = MAX_TASKS, existing = [] } = {}) {
   const errors = [];
   if (!plan || !Array.isArray(plan.tasks) || plan.tasks.length === 0) {
     return { ok: false, errors: ['plan has no tasks'], tasks: [] };
   }
   const depts = new Map((org.departments || []).map((d) => [d.id, d]));
   const raw = plan.tasks.slice(0, Math.min(MAX_TASKS, Math.max(1, maxTasks)));
+  // A re-plan adds tasks to a run that already has some: their ids are taken, and new tasks may depend on them.
+  const existingIds = new Set(existing.map((t) => t.id));
   const ids = new Set();
   for (const t of raw) {
-    if (!t.id || ids.has(t.id)) errors.push(`missing or duplicate task id "${t.id}"`);
+    if (!t.id || ids.has(t.id) || existingIds.has(t.id)) errors.push(`missing or duplicate task id "${t.id}"`);
     // Ids become file names; reject anything that could escape the run directory.
     if (t.id && !TASK_ID.test(t.id)) errors.push(`task id "${t.id}" must match ${TASK_ID}`);
     ids.add(t.id);
@@ -108,8 +115,9 @@ export function validatePlan(plan, org, catalog, { maxReviewers = DEFAULT_MAX_RE
       title: String(t.title || t.id),
       brief: String(t.brief || ''),
       deliverable: String(t.deliverable || ''),
-      dependsOn: (t.dependsOn || []).filter((d) => ids.has(d) && d !== t.id),
+      dependsOn: (t.dependsOn || []).filter((d) => (ids.has(d) || existingIds.has(d)) && d !== t.id),
       reviewers,
+      checkpoint: String(t.checkpoint || '').trim().slice(0, MAX_CHECKPOINT),
     };
   });
   const cycle = findCycle(tasks);

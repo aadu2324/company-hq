@@ -318,6 +318,38 @@ test('an active run offers no Resume button', async ($, on) => {
   await ui.unmount()
 })
 
+test('a run waiting on the owner shows the question, and the answer goes to the engine', async ($, on) => {
+  const waiting = { status: 'awaiting_owner', tasks: RUN.tasks.map(t => ({ ...t, workers: [], status: t.id === 'T1' ? 'approved' : 'pending' })),
+    checkpoint: { taskId: 'T1', question: 'Which research gap should we pursue?', deliverablePath: '/proj/.company/runs/x/deliverables/T1.md' } }
+  const runs = stubEngine(on, withRun(waiting, [{ ts: now(), type: 'run.checkpoint', question: 'Which research gap should we pursue?' }]))
+  await $.session.start({ cwd: '/proj', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: / NEEDS YOU / })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: 'Which research gap should we pursue?' })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /Read first: .*T1\.md/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Button', key: 'resume' })).toBeFalsy()
+  await ui.input({ key: 'answer', text: 'Pursue gap 2 within my GPU budget' })
+  const answered = runs.find(r => r.argv.includes('answer'))
+  expect(answered?.argv.at(-1)).toBe('Pursue gap 2 within my GPU budget')
+  await ui.press({ key: 'stop-waiting' })
+  expect(runs.find(r => r.argv.includes('stop'))?.argv.at(-1)).toBe(RUN.id)
+  await ui.unmount()
+
+  const band = await $.ui.mount({ plugin: 'company-hq', component: 'AbovePrompt', surface: 'desktop', props: { hasSurvey: false } })
+  expect(await band.find({ type: 'Text', text: / NEEDS YOU / })).toBeTruthy()
+  expect(await band.find({ type: 'Text', text: /Which research gap should we pursue\? · answer in the pane/ })).toBeTruthy()
+  await band.unmount()
+})
+
+test('a working run shows no answer box', async ($, on) => {
+  stubEngine(on, disk(true))
+  await $.session.start({ cwd: '/proj', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Input', key: 'answer' })).toBeFalsy()
+  expect(await ui.find({ type: 'Input', key: 'ask' })).toBeTruthy()
+  await ui.unmount()
+})
+
 test('a verdict whose issues are not a list still draws the pane', async ($, on) => {
   const tasks = [{ id: 'T1', department: 'engineering', title: 'Odd verdict', status: 'review', round: 0, workers: [],
     verdict: { verdict: 'revise', summary: 'parsed from free text', issues: 'not a list' } }]

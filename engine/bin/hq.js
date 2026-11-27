@@ -2,8 +2,9 @@
 import path from 'node:path';
 import { runEngine } from '../src/engine.js';
 import { initTeam } from '../src/init.js';
-import { startRun, stopRun, startInit, resumeRun } from '../src/launcher.js';
+import { startRun, stopRun, startInit, resumeRun, answerRun } from '../src/launcher.js';
 import { obsidianDir, backfillObsidian } from '../src/obsidian.js';
+import { loadWatch, addTopics, runWatch, scheduleWatch } from '../src/watch.js';
 import { discoverProjects, normalizePath } from '../src/projects.js';
 import { listRuns } from '../src/runstore.js';
 import { liveSlots, freeMemMB } from '../src/slots.js';
@@ -18,6 +19,8 @@ const HELP = `Claude HQ — run your Claude Code setup like a company.
   hq status [path]           show recent runs
   hq stop <path> <runId>     stop a run and its Claude processes
   hq resume <path> [runId]   carry on a paused or unfinished run (keeps approved work)
+  hq answer <path> "<text>"  answer the question a run is waiting on; the CEO plans the rest
+  hq watch [--schedule]      check arXiv and Hacker News for what is new in your tracked fields
   hq obsidian [path]         write every run into the Obsidian vault set in config.json
   hq projects                list projects Claude Code knows about
 `;
@@ -80,6 +83,36 @@ async function main(argv) {
       if (!rest[0]) throw new Error('usage: hq resume <path> [runId]');
       const id = resumeRun(normalizePath(rest[0]), rest[1]);
       console.log(`Resumed ${id}. Approved work is kept; the rest runs again.`);
+      return undefined;
+    }
+    case 'watch': {
+      const sub = rest[0];
+      if (sub === 'list') {
+        const { topics } = loadWatch();
+        if (!topics.length) console.log('No fields tracked yet. Runs add them, or: hq watch add "<field>" --arxiv "<query>" [--hn "<query>"]');
+        for (const t of topics) console.log(`${t.field.padEnd(32)} last checked ${t.lastChecked || 'never'}  arXiv: ${t.arxiv || '-'}  HN: ${t.hn || '-'}`);
+        return undefined;
+      }
+      if (sub === 'add') {
+        if (!rest[1]) throw new Error('usage: hq watch add "<field>" --arxiv "<query>" [--hn "<query>"]');
+        const added = addTopics([{ field: rest[1], arxiv: flag(rest, '--arxiv') || '', hn: flag(rest, '--hn') || '' }]);
+        console.log(added ? `Now watching ${rest[1]}.` : `Updated ${rest[1]}.`);
+        return undefined;
+      }
+      if (rest.includes('--schedule')) {
+        console.log(scheduleWatch({ time: flag(rest, '--time') || '08:00' }).instructions);
+        return undefined;
+      }
+      const r = await runWatch();
+      console.log(`Checked ${r.fields} field(s): ${r.papers} new paper(s), ${r.flagged} touching an open gap.${r.digest ? ` Digest: ${r.digest}` : ''}`);
+      for (const e of r.errors || []) console.log(`  ${e}`);
+      return undefined;
+    }
+    case 'answer': {
+      const [p, ...words] = rest;
+      if (!p || !words.length) throw new Error('usage: hq answer <path> "<your answer>"');
+      const id = answerRun(normalizePath(p), words.join(' '));
+      console.log(`Answer recorded on ${id}. The CEO is planning the rest.`);
       return undefined;
     }
     case 'obsidian': {

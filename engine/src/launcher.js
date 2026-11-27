@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { companyDir } from './config.js';
 import { ensureDir } from './fsutil.js';
 import { newRunId, openRun, listRuns } from './runstore.js';
-import { prepareResume, latestResumable } from './resume.js';
+import { prepareResume, latestResumable, answerCheckpoint, latestAwaiting } from './resume.js';
 import { exportRunToObsidian } from './obsidian.js';
 import { isPidAlive } from './slots.js';
 import { killTree } from './claude.js';
@@ -61,7 +61,20 @@ export function resumeRun(projectPath, runId) {
   return id;
 }
 
-const ACTIVE = new Set(['queued', 'planning', 'executing', 'board']);
+/** Answer the question a run is waiting on; the CEO plans the rest around it. Returns the run id. */
+export function answerRun(projectPath, answer, runId) {
+  const id = runId || latestAwaiting(listRuns(projectPath, 50))?.id;
+  if (!id) throw new Error('No run in this project is waiting for an answer.');
+  const store = openRun(projectPath, id);
+  store.update((s) => answerCheckpoint(s, answer));
+  const pid = spawnDetached(['_engine', projectPath, id], path.join(store.dir, 'engine.log'));
+  store.update({ pid });
+  store.event('owner.answer', { answer: String(answer).slice(0, 200) });
+  return id;
+}
+
+// Stoppable: running, plus a run waiting for the owner (otherwise its only exit would be answering it).
+const ACTIVE = new Set(['queued', 'planning', 'executing', 'board', 'awaiting_owner']);
 
 /** True only if pid is a live node process, so a recycled PID never gets killed. */
 function isEngineProcess(pid) {

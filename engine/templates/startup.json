@@ -10,7 +10,7 @@
   "departments": [
     { "id": "product", "name": "Product", "reportsTo": "ceo", "manager": "Head of Product",
       "charter": "Owns what gets built and why: specs, priorities, customer and market evidence.",
-      "workers": ["product-manager", "market-analyst"], "reviewers": ["qa"] },
+      "workers": ["product-manager", "market-analyst", "gap-analyst"], "reviewers": ["qa"] },
     { "id": "engineering", "name": "Engineering", "reportsTo": "cto", "manager": "Engineering Manager",
       "charter": "Builds and maintains the product with tests, in the existing architecture.",
       "workers": ["planner", "architect", "builder", "tdd", "e2e", "docs"], "reviewers": ["code-reviewer", "security-reviewer"] },

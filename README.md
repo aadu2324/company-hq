@@ -10,9 +10,9 @@ off, while you watch the whole org chart work live beside the chat.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-d97757.svg)](LICENSE)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-1c1917.svg)](https://docs.claude.com/en/docs/claude-code)
-[![Version](https://img.shields.io/badge/version-0.3.1-78c88c.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.0-78c88c.svg)](CHANGELOG.md)
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-78c88c.svg)](https://nodejs.org)
-[![Agents](https://img.shields.io/badge/role%20agents-19-d97757.svg)](agents)
+[![Agents](https://img.shields.io/badge/role%20agents-22-d97757.svg)](agents)
 
 [Install](#install) · [What you see](#what-you-see) · [Usage and speed](#usage-and-speed) · [Quick start](#quick-start) · [How a run works](#how-a-run-works) · [Teams](#teams) · [Configuration](#configuration) · [FAQ](#faq)
 
@@ -124,6 +124,9 @@ dispatching the same departments and reviewers as subagents.
 | `/hq status` | Recent runs, with process slots and free memory |
 | `/hq stop` | Stop the active run and all of its Claude processes |
 | `/hq resume` | Carry on a paused, stopped or partly failed run. Approved work and the plan are kept |
+| `/hq answer <text>` | Answer the question a run is waiting on; the CEO plans the rest around it |
+
+From a terminal: `hq watch` checks your tracked fields now, `hq watch list` / `hq watch add "<field>" --arxiv "<query>" --hn "<query>"` manage them, and `hq watch --schedule` runs it every morning.
 
 ## How a run works
 
@@ -184,16 +187,60 @@ Everything lives in plain files inside the project:
 | **startup** | CEO, CTO, CMO, General Counsel | Product, Engineering, Marketing, Web & Landing Pages, Sales & Outreach, Media & Social, Finance, Legal & Compliance |
 | **research** | Program Director, Chief Scientist, Ethics & Compliance Officer | Literature & Novelty, Methodology, Experiments, Analysis, Writing, Outreach, Ethics & Compliance |
 | **software** | CEO, CTO, General Counsel | Product, Engineering, Documentation, Legal & Compliance |
+| **frontier** | Research Director, Chief Scientist, Ethics & Integrity Officer | Frontier & Gap Discovery, Theory & Proofs, Experiments, Writing & Submission, Outreach, Ethics & Integrity |
+
+## Research mode
+
+Hire a **frontier** team (`/hq init frontier`) for work at the edge of a field: AI research, mathematics, physics.
+
+1. **Name a field, not a problem.** The gap analyst maps the frontier from verified sources, lists gaps that are
+   still open (each checked against recent work), and ranks them by impact, tractability on your machine and
+   how verifiable a result would be.
+2. **You choose.** The run pauses with a question (**NEEDS YOU** in the pane). Answer in the pane or with
+   `/hq answer`, and the CEO plans the rest around your choice.
+3. **The work.** Theory tasks state the problem formally, check small cases and counterexamples, attempt the
+   proof with every gap marked, and formalise in Lean 4 where it is installed. Experiments reproduce the strongest
+   baseline first.
+4. **Verification decides.** An adversarial proof verifier and a top-venue peer reviewer gate every result, with
+   stricter review than the lean profile allows elsewhere. Nothing is called proved, solved, novel or state of the
+   art unless the run checked it; otherwise the deliverable is an honest technical report.
+
+Startup teams get the same loop for markets: with no idea given, they find underserved problems with evidence of
+demand, ask you which to pursue, then validate before building.
+
+> [!IMPORTANT]
+> HQ makes research faster and more systematic. It cannot promise breakthroughs, and AI-assisted proofs need
+> formal or expert verification before you rely on them. Check each venue's and prize's rules on AI assistance and
+> authorship: you are the author and responsible for what you submit.
+
+## Your second brain
+
+With Obsidian set up, what the company learns accumulates in your vault, not just in run notes:
+
+| Folder | What goes there |
+|---|---|
+| `Literature/<field>/` | One note per paper the company cites or the watcher finds: authors, year, link, abstract |
+| `Gaps/<field>/` | Every research gap and market opportunity found, with evidence and scores |
+| `Fields/<field>.md` | A hub per field linking its papers, gaps and projects |
+| `Research Watch/` | A digest per day of what is new, with papers that may affect one of your open gaps flagged |
+
+Notes are written once and then left to you, so your annotations survive. Set `"knowledgeFolder"` (inside
+`obsidian`) to put these under a folder such as `Second Brain`.
+
+**Research watch.** Fields are tracked automatically when a run finds gaps, or with `hq watch add`. Once a day
+the watcher asks arXiv for new papers and Hacker News for new stories in each field. It only sends the search
+terms, calls no Claude model and costs no usage. `hq watch --schedule` sets this up with Task Scheduler on Windows;
+on macOS and Linux it prints the crontab line to add.
 
 The org designer starts from the closest template and adapts it to the repository, then the result is
 validated before it is saved. If tailoring fails, the template is used as is.
 
 <details>
-<summary>The 19 bundled role agents</summary>
+<summary>The 22 bundled role agents</summary>
 
 | Leadership | Workers | Reviewers |
 |---|---|---|
-| `co-board` · `co-ceo` · `co-cto` · `co-org-designer` | `co-product-manager` · `co-market-analyst` · `co-finance-analyst` · `co-copywriter` · `co-landing-page-dev` · `co-outreach-writer` · `co-media-manager` · `co-literature-scout` · `co-methodologist` · `co-experimentalist` · `co-data-analyst` · `co-paper-writer` | `co-qa-reviewer` · `co-peer-reviewer` · `co-legal-counsel` |
+| `co-board` · `co-ceo` · `co-cto` · `co-org-designer` | `co-product-manager` · `co-market-analyst` · `co-finance-analyst` · `co-copywriter` · `co-landing-page-dev` · `co-outreach-writer` · `co-media-manager` · `co-gap-analyst` · `co-literature-scout` · `co-theorist` · `co-methodologist` · `co-experimentalist` · `co-data-analyst` · `co-paper-writer` | `co-qa-reviewer` · `co-peer-reviewer` · `co-proof-verifier` · `co-legal-counsel` |
 
 They install as `company-hq:co-<name>` and can be used directly in any chat too.
 </details>
@@ -211,7 +258,8 @@ Optional. Create `~/.claude/company/config.json` with any of these keys:
 | `models` | from the profile | Model per role: `ceo`, `board`, `orgDesigner`, `manager`, `reviewer` |
 | `effort` | from the profile | Effort per role (`low`, `medium`, `high`) |
 | `isolate` | from the profile | `false` keeps your hooks, MCP servers and skills in background processes |
-| `obsidian` | off | `{ "vault": "<vault folder>", "folder": "HQ" }` writes a note per run into your vault |
+| `obsidian` | off | `{ "vault": "<vault folder>", "folder": "HQ", "knowledgeFolder": "" }`: run notes in `folder`, literature, gaps and fields in `knowledgeFolder` |
+| `watch` | none | `{ "launcher": ["<program>", "<args>"] }` wraps the scheduled watch command (for example, to hide its window on Windows) |
 | `permissionMode` | `acceptEdits` | Permission mode for background processes |
 | `processTimeoutMin` | `90` | A process running longer than this is stopped |
 | `vramGB` | none | GPU memory, so workers size experiments to fit. RAM is detected |

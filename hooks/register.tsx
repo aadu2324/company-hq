@@ -19,19 +19,20 @@ const NOTICE_MS = 15_000
 const NO_TEAM_RECHECK_MS = 30_000
 const CHAT_FEED_MS = 3_600_000
 const MAX_OPEN_SPAWNS = 200
-const TEAM_TYPES = new Set(['startup', 'research', 'software'])
+const TEAM_TYPES = new Set(['startup', 'research', 'software', 'frontier'])
 const TABS = new Set<Tab>(['overview', 'team', 'tasks', 'activity'])
 const USAGE = [
   '/hq                 open the HQ pane',
   '/hq run <request>   hand a request to the company (runs in the background)',
-  '/hq init [startup|research|software]   hire a team for this project',
+  '/hq init [startup|research|software|frontier]   hire a team for this project',
+  '/hq answer <text>   answer the question a run is waiting on',
   '/hq stop            stop the active run',
   '/hq resume          carry on a paused or unfinished run (keeps approved work)',
   '/hq status          recent runs',
 ].join('\n')
 
 // Tag changes when Snapshot's fields change, so a value an older version stored is declined.
-const snapshot = atom({ plugin: 'company-hq', key: 'snapshot' } as const, null, { shape: 'snap-4' })
+const snapshot = atom({ plugin: 'company-hq', key: 'snapshot' } as const, null, { shape: 'snap-5' })
 const isBandHidden = atom({ plugin: 'company-hq', key: 'isBandHidden' } as const, false)
 const notice = atom({ plugin: 'company-hq', key: 'notice' } as const, '')
 const tab = atom({ plugin: 'company-hq', key: 'tab' } as const, 'overview' as Tab)
@@ -295,6 +296,7 @@ function actionsFor($: Engine, root: string): Actions {
       void update($, pickedRun, () => '')
       void act($, ['resume', root, runId])
     },
+    answer: text => { void act($, ['answer', root, text]) },
     toggleTask: id => { void update($, openTask, current => (current === id ? '' : id)) },
     refresh: () => { void refresh($, true) },
     toggleBand: () => { void update($, isBandHidden, v => !v) },
@@ -311,7 +313,7 @@ export const register: Register = on => {
     live.pluginRoot = $.plugin.root
     live.isInteractive = e.isInteractive
     live.isLoggingChat = e.isInteractive && !(await $.env.get('HQ_RUN_ID'))
-    await $.command.register({ name: 'hq', description: 'Company HQ: open the company pane, or run / init / stop / status', argumentHint: '[run <request> | init [type] | stop | resume | status]' })
+    await $.command.register({ name: 'hq', description: 'Company HQ: open the company pane, or run / init / stop / status', argumentHint: '[run <request> | answer <text> | init [type] | stop | resume | status]' })
     await refresh($)
     live.timer?.cancel?.()
     live.timer = null
@@ -375,14 +377,21 @@ export const register: Register = on => {
     }
     if (sub === 'init') {
       const type = rest[0] ?? ''
-      if (type && !TEAM_TYPES.has(type)) return { text: 'Usage: /hq init [startup|research|software]' }
+      if (type && !TEAM_TYPES.has(type)) return { text: 'Usage: /hq init [startup|research|software|frontier]' }
       return { text: await act($, ['init', root, '--background', ...(type ? ['--type', type] : [])]) }
     }
     if (sub === 'stop') {
-      const active = snap?.run && ACTIVE_RUN.has(snap.run.status) && snap.isLatest ? snap.run.id : null
+      // A run waiting for the owner can be stopped too, instead of answering it.
+      const isStoppable = Boolean(snap?.run && (ACTIVE_RUN.has(snap.run.status) || snap.run.status === 'awaiting_owner') && snap.isLatest)
+      const active = isStoppable && snap?.run ? snap.run.id : null
       return { text: active ? await act($, ['stop', root, active]) : 'No active run to stop.' }
     }
     if (sub === 'status') return { text: await runHq($, root, ['status', root]) }
+    if (sub === 'answer') {
+      const text = e.args.trim().slice(6).trim()
+      if (!text) return { text: 'Usage: /hq answer <your answer>' }
+      return { text: await act($, ['answer', root, text]) }
+    }
     if (sub === 'resume') {
       await update($, pickedRun, () => '')
       const text = await act($, ['resume', root, ...(rest[0] ? [rest[0]] : [])])

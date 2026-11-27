@@ -44,13 +44,64 @@ Planning rules:
 4. A small request is ONE task. Never more than ${maxTasks} tasks; every task costs a manager and a review, so merge closely related work into one task.
 5. Briefs must be self-contained: goal, relevant files, constraints, definition of done.
 6. If the request is ambiguous, put questions in "questions" and plan only the unambiguous part.
-
+7. When the right next step depends on a choice only the owner can make (which research gap, which product idea, which venue), end the first phase with ONE task whose "checkpoint" is that question, and plan only up to it. The run pauses there, the owner answers, and you plan the rest with the answer. Otherwise leave "checkpoint" empty.
+${isResearch(org) ? `\n${RESEARCH_PLAYBOOK}\n` : ''}${org.project?.type === 'startup' ? `\n${STARTUP_PLAYBOOK}\n` : ''}
 Owner's request:
 """
 ${request}
 """
 
-Return the plan as JSON matching the schema: goal, doneMeans, questions, tasks[{id, department, title, brief, deliverable, dependsOn, reviewers}].`;
+Return the plan as JSON matching the schema: goal, doneMeans, questions, tasks[{id, department, title, brief, deliverable, dependsOn, reviewers, checkpoint}].`;
+}
+
+export const isResearch = (org) => ['research', 'frontier'].includes(String(org?.project?.type || ''));
+
+const RESEARCH_PLAYBOOK = `Research playbook (this is a research company):
+- Field named but no problem chosen: the first task is gap discovery in that field (frontier map, gaps checked to be still open, ranked by impact, tractability on the owner's machine, and how verifiable a result would be), with a checkpoint asking the owner which direction to pursue.
+- Mathematics and theory: formal statement, known partial results and barriers, small cases and counterexample search, the proof attempt with every gap marked, Lean 4 formalisation where possible, then the proof verifier. A famous open problem is attacked through realistic contributions (special cases, formalisation, computation) unless the owner insists, and nothing is called proved unless verification passed.
+- Physics: derivation plus dimensional analysis, limits, symmetries and numerical checks against known solutions or data.
+- AI research: reproduce the strongest baseline on the owner's hardware first, then the new method with seeds, ablations and honest statistics.
+- Writing: a venue-ready paper only for verified results; otherwise an honest technical report. Include the venue's AI-use and authorship disclosure requirements in the integrity task.`;
+
+const STARTUP_PLAYBOOK = `Startup playbook:
+- No product or idea chosen yet: the first task is market gap discovery (Product, with the gap analyst): underserved problems with evidence that people want them solved (complaints, reviews, forum threads, failed or weak competitors, search and spending signals), each checked for existing solutions, sized and ranked by willingness to pay, reachability of the first customers, and fit with the owner's skills. End it with a checkpoint asking the owner which opportunity to pursue.
+- After the choice: validation before building (landing page and outreach drafts to test demand), then the smallest product that delivers the core value, with pricing and unit economics from Finance.
+- Never present a market size, revenue figure or customer quote that was not sourced or measured.`;
+
+/** Rules every worker on a research team follows, on top of the company policy. */
+export const RESEARCH_INTEGRITY = `Research integrity (non-negotiable):
+- Never state that something is proved, solved, state of the art or novel unless this run checked it (proof verified or formally compiled, experiment run, recent literature searched). Label everything else as conjecture, preliminary or unverified.
+- Cite only sources you opened in this session. Never invent papers, theorems, numbers or quotes.
+- Report negative and partial results plainly; they are results.`;
+
+/** The CEO plans the rest of a run after the owner answered a checkpoint question. */
+export function replanPrompt({ org, catalog, state, checkpoint, answer, maxTasks = 8 }) {
+  const done = (state.tasks || []).map((t) => `- ${t.id} [${t.department}] ${t.title}: ${t.status}; deliverable ${t.deliverablePath || 'none'}`).join('\n');
+  return `You are the CEO of the company working on "${org.project?.name || ''}" (${org.project?.type || 'software'}). The run paused for the owner's decision; plan the rest of it now. Do not modify anything.
+
+Owner's original request:
+"""
+${state.prompt}
+"""
+Goal so far: ${state.plan?.goal || ''}
+
+Work so far:
+${done}
+
+Question you asked: ${checkpoint.question}
+Read the deliverable it was based on first: ${checkpoint.deliverablePath || 'see the work above'}
+
+Owner's answer:
+"""
+${answer}
+"""
+
+Departments you can assign work to (use the id exactly):
+${orgSummary(org, catalog)}
+
+Plan only NEW tasks (ids must differ from the ones above; they may depend on approved ones). Follow the planning rules: one department per task, at most ${maxTasks} tasks, self-contained briefs, real dependencies only, "legal" on outward-facing work, and a further "checkpoint" only if another owner decision is genuinely needed.
+${isResearch(org) ? `\n${RESEARCH_PLAYBOOK}\n` : ''}
+Return JSON matching the schema: goal (the updated goal), doneMeans, questions, tasks[...].`;
 }
 
 export function managerSystem({ org, catalog, dept, maxWorkers = 3 }) {
@@ -65,8 +116,9 @@ How you work:
 2. Give every worker a self-contained brief: goal, the exact files to read (never "explore the repo"), constraints, and exactly what to return.
 3. Check each worker's output yourself and send weak work back. Do small glue work yourself rather than spawning a worker for it.
 4. Finish by writing the deliverable file you are given (markdown): what was done, files created or changed, evidence (commands and their results), open risks, and handoffs for other departments.
+5. If a worker returned fenced \`hq-gaps\`, \`hq-watch\` or \`bibtex\` blocks, copy them into the deliverable unchanged: HQ files them into the owner's knowledge base.
 
-${POLICY}`;
+${POLICY}${isResearch(org) ? `\n\n${RESEARCH_INTEGRITY}` : ''}`;
 }
 
 export function managerTask({ goal, task, deliverablePath, dependencyFiles, feedback }) {

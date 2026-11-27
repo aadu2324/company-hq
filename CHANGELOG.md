@@ -3,6 +3,27 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-11-26
+
+### Added
+- **Research mode.** A `frontier` team (Research Director, Chief Scientist, Frontier & Gap Discovery, Theory &
+  Proofs, Experiments, Writing & Submission) with strict verification, and research playbooks for AI, mathematics
+  and physics. New agents: `co-gap-analyst` (frontier and market gaps, each checked to be still open),
+  `co-theorist` (formal statements, proof attempts, counterexample search, Lean 4) and `co-proof-verifier`
+  (adversarial step-by-step checking, counterexamples, Lean builds).
+- **Owner checkpoints.** A plan can stop at a question only the owner can answer ("which gap?", "which idea?").
+  The run waits (**NEEDS YOU**), `/hq answer` or the pane's answer box records the choice, and the CEO re-plans
+  the rest around it, keeping finished work.
+- **Startup gap discovery.** With no idea given, startup teams find underserved problems with evidence of demand
+  and ask which to pursue before building.
+- **Second brain.** Papers, research gaps, market opportunities and per-field hubs are filed into the Obsidian vault
+  as linked notes, written once so your annotations survive.
+- **Research watch.** `hq watch` checks arXiv and Hacker News daily for every tracked field, files new papers,
+  flags ones that may affect an open gap, and writes a daily digest. No Claude calls, no usage.
+  `hq watch --schedule` sets it up.
+- Research integrity rules for research teams: nothing is called proved, solved, novel or state of the art unless
+  the run checked it.
+
 ## [0.3.1] - 2026-11-26
 
 ### Fixed
@@ -88,6 +109,7 @@ The whole company now ships in the plugin: install once and `/hq init`, `/hq run
 - Status row above the prompt with Open and Hide buttons.
 - `/hq`, `/hq run`, `/hq init`, `/hq stop` and `/hq status` commands.
 
+[0.4.0]: https://github.com/aadu2324/company-hq/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/aadu2324/company-hq/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/aadu2324/company-hq/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/aadu2324/company-hq/compare/v0.1.1...v0.2.0

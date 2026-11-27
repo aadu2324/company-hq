@@ -27,6 +27,7 @@ export const RUN_LOOK: Record<string, Look> = {
   executing: { label: 'WORKING', hue: 'suggestion', icon: '▶' },
   board: { label: 'BOARD REVIEW', hue: 'merged', icon: '⚖' },
   paused: { label: 'PAUSED', hue: 'warning', icon: '⏸' },
+  awaiting_owner: { label: 'NEEDS YOU', hue: 'permission', icon: '?' },
   done: { label: 'DONE', hue: 'success', icon: '✓' },
   done_with_failures: { label: 'DONE WITH ISSUES', hue: 'warning', icon: '!' },
   failed: { label: 'FAILED', hue: 'error', icon: '✗' },
@@ -195,6 +196,7 @@ export function narrate(
       ? `Queued: every Claude slot is busy. Running now: ${others.slice(0, 2).map(holderText).join('; ')}.`
       : 'Queued: starting as soon as a Claude slot is free.'
     case 'paused': return 'Paused. Resume to carry on; approved work is kept.'
+    case 'awaiting_owner': return 'Your decision is needed before the company plans the rest.'
     case 'planning': return 'The CEO is reading the project and splitting the request into tasks.'
     case 'board': return 'The Board is reviewing everything that was delivered.'
     case 'done': return board?.decision === 'approve' || board?.decision === 'approve_with_conditions'
@@ -275,6 +277,9 @@ export function runView(s: Json, deptNames: Map<string, string>, roles: Json, ev
     // A resumed run counts from the resume, not across the paused hours.
     runningSince: String(s.resumedAt ?? s.startedAt ?? s.createdAt ?? ''),
     canResume: RESUMABLE.has(status),
+    checkpoint: status === 'awaiting_owner' && s.checkpoint
+      ? { question: String(s.checkpoint.question ?? ''), deliverablePath: String(s.checkpoint.deliverablePath ?? '') }
+      : null,
     resumes: Number(s.resumes) || 0,
   }
 }
@@ -330,6 +335,10 @@ export function feedItem(ev: Json): FeedItem {
     case 'run.resumed': return at('▶', 'claude', 'Run resumed: approved work kept, the rest carries on')
     case 'run.queued': return at('◌', 'inactive', 'Queued to resume')
     case 'run.paused': return at('⏸', 'warning', `Paused by the Claude usage limit${ev.resets ? `, resets ${ev.resets}` : ''}`)
+    case 'run.checkpoint': return at('?', 'permission', `Waiting for you: ${ev.question ?? ''}`)
+    case 'owner.answer': return at('✎', 'permission', `You answered: ${ev.answer ?? ''}`)
+    case 'plan.revised': return at('◆', 'planMode', `CEO re-planned around your answer: ${plural(Number(ev.tasks) || 0, 'new task')}`)
+    case 'knowledge.filed': return at('◇', 'remember', `Filed to your second brain: ${plural(Number(ev.papers) || 0, 'paper')}, ${plural(Number(ev.gaps) || 0, 'gap')}${ev.fields ? `, now watching ${plural(Number(ev.fields), 'field')}` : ''}`)
     case 'obsidian.failed': return at('!', 'warning', `Could not write the Obsidian note: ${ev.error ?? ''}`)
     case 'plan.ready': return at('◆', 'planMode', `CEO planned ${plural(Number(ev.tasks) || 0, 'task')}: ${ev.goal ?? ''}`)
     case 'process.start': return at('⚙', 'subtle', `Started ${ev.label ?? 'a process'}`)

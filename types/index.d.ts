@@ -76,6 +76,8 @@ export type RunView = {
   runningSince: string
   /** Paused, failed, stopped or partly failed: `hq resume` can carry it on. */
   canResume: boolean
+  /** The question the run is waiting on the owner for, with the report it is based on. */
+  checkpoint: { question: string; deliverablePath: string } | null
   resumes: number
 }
 

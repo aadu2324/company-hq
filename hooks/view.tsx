@@ -15,6 +15,7 @@ export type Actions = {
   hire: (type?: string) => void
   stop: (runId: string) => void
   resume: (runId: string) => void
+  answer: (text: string) => void
   toggleTask: (taskId: string) => void
   refresh: () => void
   toggleBand: () => void
@@ -176,6 +177,28 @@ function Now(ui: Ui, run: RunView, frame: number) {
       <Text>{run.now}</Text>
       {run.goal ? <Text dimColor wrap="truncate">Goal: {run.goal}</Text> : null}
       {run.questions.map(q => <Text color="warning">? {q}</Text>)}
+    </Box>
+  )
+}
+
+/** The run is waiting for the owner: the question, the report behind it, and a box to answer. */
+function Decision(ui: Ui, run: RunView, actions: Actions) {
+  const { Box, Text, Input } = ui
+  if (!run.checkpoint) return null
+  return (
+    <Box borderStyle="round" borderColor="permission" paddingX={1} flexDirection="column" gap={1}>
+      <Text color="permission" bold>? Your decision</Text>
+      <Text bold>{run.checkpoint.question}</Text>
+      {run.checkpoint.deliverablePath ? <Text dimColor wrap="truncate-middle">Read first: {run.checkpoint.deliverablePath}</Text> : null}
+      <Input
+        key="answer"
+        label="Your answer"
+        placeholder="e.g. Pursue gap 2, but keep it within what my GPU can train"
+        submitLabel="Answer"
+        rows={3}
+        onSubmit={(value: string) => { if (value.trim()) actions.answer(value.trim()) }}
+      />
+      <ui.Button key="stop-waiting" plain label="Stop this run instead" onPress={() => actions.stop(run.id)} />
     </Box>
   )
 }
@@ -349,6 +372,7 @@ function Overview(ui: Ui, snap: Snapshot, state: PaneState, actions: Actions) {
     <Box flexDirection="column" gap={1}>
       {Pipeline(ui, run, state.frame)}
       {Now(ui, run, state.frame)}
+      {snap.isLatest ? Decision(ui, run, actions) : null}
       {Live(ui, snap, state.frame)}
       {Progressbar(ui, run)}
       {tasks.length ? (
@@ -426,6 +450,7 @@ function NoTeam(ui: Ui, snap: Snapshot, notice: string, actions: Actions) {
         <Button key="hire-startup" label="Startup" onPress={() => actions.hire('startup')} />
         <Button key="hire-research" label="Research" onPress={() => actions.hire('research')} />
         <Button key="hire-software" label="Software" onPress={() => actions.hire('software')} />
+        <Button key="hire-frontier" label="Frontier research" onPress={() => actions.hire('frontier')} />
       </Box>
       {notice ? <Text color="warning">{notice}</Text> : null}
     </Box>
@@ -480,9 +505,12 @@ export function bandView(ui: Ui, snap: Snapshot, frame: number, actions: Actions
   const { Box, Text, Button } = ui
   const run = snap.run
   const live = isLive(run)
-  const look = live && run ? runLook(run.status) : runLook('idle')
+  const needsYou = Boolean(run?.checkpoint && snap.isLatest)
+  const look = (live || needsYou) && run ? runLook(run.status) : runLook('idle')
   const progress = live && run && run.tasks.length ? `${blocks(run.done, run.tasks.length)} ${run.done}/${run.tasks.length}` : ''
-  const said = live && run ? run.now : `${snap.departments} departments ready · /hq run <request>`
+  const said = needsYou && run?.checkpoint
+    ? `${run.checkpoint.question} · answer in the pane or /hq answer <text>`
+    : live && run ? run.now : `${snap.departments} departments ready · /hq run <request>`
   return (
     <Box gap={1}>
       <Text color="claude" bold>{live ? spin(frame) : '◆'} HQ</Text>

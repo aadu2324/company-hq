@@ -45,6 +45,14 @@ Dispatch the Board (`co-board` or `company-hq:co-board`) once with the request, 
 verdicts. Report its decision, concerns and follow-ups to the user, along with what was done and what was
 not verified.
 
+## Research and startup teams
+- A field or market named without a problem or idea: start with gap discovery (`company-hq:co-gap-analyst`),
+  show the ranked gaps, and ask the owner to choose before planning further.
+- Proofs and derivations go to `company-hq:co-theorist` and are checked by `company-hq:co-proof-verifier`; never
+  call anything proved, solved, novel or state of the art unless it was verified in this session.
+- Keep the gap analyst's `hq-gaps`, `hq-watch` and `bibtex` blocks in the deliverable you write, so HQ can file
+  them into the owner's second brain.
+
 ## Hard rules
 - Drafts only: never send, post, publish, deploy, submit or purchase anything.
 - No commits or pushes unless the user asked.

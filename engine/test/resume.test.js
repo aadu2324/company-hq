@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { prepareResume, latestResumable } from '../src/resume.js';
+import { prepareResume, latestResumable, answerCheckpoint } from '../src/resume.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -84,6 +84,76 @@ test('a limit during a revision round resumes that round with the reviewer feedb
   assert.equal(after[0], 'manager:T1:resume:revision', `continues round 1 with the review feedback: ${after}`);
   assert.equal(after.filter((c) => c.startsWith('manager:T1')).length, 1, `T1's first attempt is not redone: ${after}`);
   assert.equal(done.tasks[0].round, 1);
+});
+
+test('a checkpoint waits for the owner, and the answer re-plans the rest without redoing anything', () => {
+  const proj = project();
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hqfake-'));
+  const runId = 'checkpoint-run';
+  const runDir = path.join(proj, '.company', 'runs', runId);
+  fs.mkdirSync(runDir, { recursive: true });
+  fs.writeFileSync(path.join(runDir, 'state.json'), JSON.stringify({ id: runId, project: proj, prompt: 'find a gap and pursue it', status: 'queued', tasks: [], cost: 0 }));
+
+  const waiting = runFake(proj, runId, stateDir, { FAKE_CHECKPOINT: '1' });
+  assert.equal(waiting.status, 'awaiting_owner', waiting.error);
+  assert.equal(waiting.checkpoint.question, 'Which gap should we pursue?');
+  assert.equal(waiting.checkpoint.taskId, 'T1');
+  assert.deepEqual(waiting.tasks.map((t) => t.status), ['approved', 'pending'], 'nothing after the checkpoint starts');
+  assert.equal(waiting.board, undefined, 'the Board waits too');
+  assert.throws(() => answerCheckpoint(waiting, '   '), /empty/);
+  const before = calls(stateDir);
+
+  fs.writeFileSync(path.join(runDir, 'state.json'), JSON.stringify(answerCheckpoint(waiting, 'Pursue gap A')));
+  const done = runFake(proj, runId, stateDir);
+  assert.equal(done.status, 'done', done.error);
+  assert.deepEqual(done.tasks.map((t) => `${t.id}:${t.status}`), ['T1:approved', 'T3:approved'], 'unstarted T2 is replaced by the re-plan');
+  assert.match(done.tasks[1].brief, /Pursue gap A/);
+  assert.equal(done.ownerAnswers.length, 1);
+  const after = calls(stateDir).slice(before.length);
+  assert.equal(after[0], 'ceo:replan');
+  assert.ok(!after.includes('ceo'), 'no fresh plan');
+  assert.ok(!after.some((c) => c.startsWith('manager:T1')), 'T1 is not redone');
+  assert.ok(after.includes('board'));
+});
+
+test('an answer that needs no further work finishes the run instead of failing it', () => {
+  const proj = project();
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hqfake-'));
+  const runId = 'empty-replan';
+  const runDir = path.join(proj, '.company', 'runs', runId);
+  fs.mkdirSync(runDir, { recursive: true });
+  fs.writeFileSync(path.join(runDir, 'state.json'), JSON.stringify({ id: runId, project: proj, prompt: 'p', status: 'queued', tasks: [], cost: 0 }));
+  const waiting = runFake(proj, runId, stateDir, { FAKE_CHECKPOINT: '1' });
+  fs.writeFileSync(path.join(runDir, 'state.json'), JSON.stringify(answerCheckpoint(waiting, 'that is all')));
+  const done = runFake(proj, runId, stateDir, { FAKE_REPLAN_EMPTY: '1' });
+  assert.equal(done.status, 'done', done.error);
+  assert.equal(done.replanFrom, undefined);
+});
+
+test('a run waiting for the owner can be stopped instead of answered', async () => {
+  const { stopRun } = await import('../src/launcher.js');
+  const proj = project();
+  const runDir = path.join(proj, '.company', 'runs', 'waiting-run');
+  fs.mkdirSync(runDir, { recursive: true });
+  fs.writeFileSync(path.join(runDir, 'state.json'), JSON.stringify({ id: 'waiting-run', status: 'awaiting_owner', pid: null,
+    checkpoint: { taskId: 'T1', question: 'Which?' }, tasks: [{ id: 'T1', status: 'approved' }, { id: 'T2', status: 'pending' }] }));
+  stopRun(proj, 'waiting-run');
+  const state = JSON.parse(fs.readFileSync(path.join(runDir, 'state.json'), 'utf8'));
+  assert.equal(state.status, 'stopped');
+  assert.deepEqual(state.tasks.map((t) => t.status), ['approved', 'stopped']);
+});
+
+test('a run without a checkpoint never waits for the owner', () => {
+  const proj = project();
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hqfake-'));
+  const runId = 'no-checkpoint';
+  const runDir = path.join(proj, '.company', 'runs', runId);
+  fs.mkdirSync(runDir, { recursive: true });
+  fs.writeFileSync(path.join(runDir, 'state.json'), JSON.stringify({ id: runId, project: proj, prompt: 'launch it', status: 'queued', tasks: [], cost: 0 }));
+  const state = runFake(proj, runId, stateDir);
+  assert.equal(state.status, 'done');
+  assert.ok(!calls(stateDir).includes('ceo:replan'));
+  assert.throws(() => answerCheckpoint(state, 'anything'), /not waiting/);
 });
 
 test('without the usage limit the same run is not paused', () => {

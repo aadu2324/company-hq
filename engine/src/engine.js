@@ -8,7 +8,9 @@ import { runClaude } from './claude.js';
 import { isAgentTool } from './stream.js';
 import * as P from './prompts.js';
 import { openRun, updateTask } from './runstore.js';
-import { exportRunToObsidian } from './obsidian.js';
+import { exportRunToObsidian, runNoteName } from './obsidian.js';
+import { fileDeliverable } from './knowledge.js';
+import { addTopics } from './watch.js';
 
 const READ_ONLY = ['Edit', 'Write', 'NotebookEdit', 'MultiEdit'];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -26,8 +28,20 @@ class LimitError extends Error {
   }
 }
 
+/** A checkpoint task was approved: the run waits for the owner's answer before planning the rest. */
+class CheckpointPause extends Error {
+  constructor(task) {
+    super(`Waiting for the owner: ${task.checkpoint}`);
+    this.code = 'checkpoint';
+    this.checkpoint = { taskId: task.id, question: task.checkpoint, deliverablePath: task.deliverablePath || '' };
+  }
+}
+
 /** Codes that end the whole run (every sibling task is cancelled) rather than one task. */
 const RUN_ENDING = new Set(['stopped', 'auth', 'limit']);
+
+/** An approved task whose checkpoint question the owner has not answered yet. */
+const openCheckpoint = (tasks) => tasks.find((t) => t.checkpoint && t.status === 'approved' && !t.checkpointAnswered);
 
 /** Create the context object shared by every phase of one run. */
 function makeContext(projectPath, runId) {
@@ -102,11 +116,11 @@ async function planPhase(ctx, request) {
   const { store, org, catalog, config } = ctx;
   store.update({ status: 'planning' });
   const res = await claudeInSlot(ctx, {
-    label: 'CEO · plan', ...processOptions(config, 'ceo'), prompt: P.ceoPrompt({ org, catalog, request, maxTasks: config.maxTasks }),
+    label: 'CEO · plan', ...processOptions(config, 'ceo'), prompt: P.ceoPrompt({ org, catalog, request, maxTasks: maxTasksFor(org, config) }),
     schema: PLAN_SCHEMA, disallowedTools: READ_ONLY, permissionMode: 'default',
   });
   if (!res.ok || !res.structured) throw new Error(`CEO planning failed: ${res.error || 'no plan returned'}`);
-  const { ok, errors, tasks } = validatePlan(res.structured, org, catalog, { maxReviewers: config.maxReviewers, maxTasks: config.maxTasks });
+  const { ok, errors, tasks } = validatePlan(res.structured, org, catalog, { maxReviewers: reviewersFor(org, config), maxTasks: maxTasksFor(org, config) });
   if (!ok) throw new Error(`CEO plan invalid: ${errors.join('; ')}`);
   const plan = { goal: res.structured.goal, doneMeans: res.structured.doneMeans || '', questions: res.structured.questions || [] };
   store.update({
@@ -116,15 +130,58 @@ async function planPhase(ctx, request) {
   store.event('plan.ready', { goal: plan.goal, tasks: tasks.length, questions: plan.questions.length });
 }
 
+/**
+ * After the owner answered a checkpoint: the CEO plans the rest with that answer. Tasks that have not
+ * started are replaced by the new plan; finished work stays.
+ */
+async function replanPhase(ctx) {
+  const { store, org, catalog, config } = ctx;
+  const state = store.state;
+  const answered = (state.ownerAnswers || []).at(-1);
+  if (!answered) { store.update({ replanFrom: undefined }); return; }
+  store.update({ status: 'planning' });
+  const res = await claudeInSlot(ctx, {
+    label: 'CEO · re-plan', ...processOptions(config, 'ceo'),
+    prompt: P.replanPrompt({ org, catalog, state, checkpoint: answered, answer: answered.answer, maxTasks: maxTasksFor(org, config) }),
+    schema: PLAN_SCHEMA, disallowedTools: READ_ONLY, permissionMode: 'default',
+  });
+  if (!res.ok || !res.structured) throw new Error(`CEO re-planning failed: ${res.error || 'no plan returned'}`);
+  // The answer may need no further work (the checkpoint was the last task): finish with what is there.
+  if (!Array.isArray(res.structured.tasks) || res.structured.tasks.length === 0) {
+    store.update((s) => ({ ...s, replanFrom: undefined }));
+    store.event('plan.revised', { tasks: 0, answer: answered.answer.slice(0, 200) });
+    return;
+  }
+  const kept = state.tasks.filter((t) => t.status !== 'pending' || t.sessionId);
+  const { ok, errors, tasks } = validatePlan(res.structured, org, catalog, {
+    maxReviewers: reviewersFor(org, config), maxTasks: maxTasksFor(org, config), existing: kept,
+  });
+  if (!ok) throw new Error(`CEO re-plan invalid: ${errors.join('; ')}`);
+  store.update((s) => ({
+    ...s,
+    replanFrom: undefined,
+    plan: { ...s.plan, goal: res.structured.goal || s.plan?.goal, doneMeans: res.structured.doneMeans || s.plan?.doneMeans, questions: res.structured.questions || [] },
+    tasks: [...kept, ...tasks.map((t) => ({ ...t, status: 'pending', round: 0, workers: [], deliverablePath: store.deliverable(t.id) }))],
+  }));
+  store.event('plan.revised', { tasks: tasks.length, answer: answered.answer.slice(0, 200) });
+}
+
+/** A strict-review team (frontier research) sets its own task and reviewer limits; otherwise the profile does. */
+const isStrict = (org) => Boolean(org.policies?.strictReview);
+const maxTasksFor = (org, config) => (isStrict(org) && org.policies?.maxTasks ? org.policies.maxTasks : config.maxTasks);
+const reviewersFor = (org, config) => (isStrict(org) ? Math.max(config.maxReviewers ?? 2, 2) : config.maxReviewers);
+
 async function review(ctx, task) {
-  const { config, catalog, store } = ctx;
+  const { config, catalog, store, org } = ctx;
+  // Strict review runs the real reviewer agents (the proof verifier with its tools), not one combined pass.
+  const mode = isStrict(org) ? 'panel' : config.reviewMode;
   const res = await claudeInSlot(ctx, {
     label: `Review · ${task.id}`, taskId: task.id, ...processOptions(config, 'reviewer'),
     prompt: P.reviewTask({ task, deliverablePath: task.deliverablePath }),
-    systemPromptFile: store.promptFile(`review-${task.id}`, P.reviewSystem({ catalog, task, mode: config.reviewMode })),
+    systemPromptFile: store.promptFile(`review-${task.id}`, P.reviewSystem({ catalog, task, mode })),
     schema: VERDICT_SCHEMA, permissionMode: 'default',
     // A single-pass reviewer reads the work once itself: no reviewer subagents waking it up again and again.
-    disallowedTools: config.reviewMode === 'single' ? [...READ_ONLY, 'Agent', 'Task'] : READ_ONLY,
+    disallowedTools: mode === 'single' ? [...READ_ONLY, 'Agent', 'Task'] : READ_ONLY,
   });
   if (!res.ok || !res.structured?.verdict) return { verdict: 'revise', summary: `Review did not complete: ${res.error || 'no verdict'}`, issues: [] };
   return res.structured;
@@ -140,7 +197,8 @@ function revisionFeedback(verdict) {
 async function runTask(ctx, task) {
   const { org, catalog, config, store } = ctx;
   const dept = org.departments.find((d) => d.id === task.department);
-  const rounds = Math.min(org.policies?.reviewRounds ?? 2, config.reviewRounds ?? 2);
+  // Strict review (frontier research) keeps the team's own rounds: verification is the point there.
+  const rounds = isStrict(org) ? (org.policies?.reviewRounds ?? 2) : Math.min(org.policies?.reviewRounds ?? 2, config.reviewRounds ?? 2);
   const depFiles = task.dependsOn.map((d) => store.deliverable(d));
   const systemPromptFile = store.promptFile(`manager-${task.id}`, P.managerSystem({ org, catalog, dept, maxWorkers: config.maxWorkers }));
   // A resumed task picks its manager's conversation back up instead of starting over, in the round it was
@@ -181,6 +239,26 @@ async function runTask(ctx, task) {
   }
   updateTask(store, task.id, { status: 'approved' });
   store.event('task.approved', { taskId: task.id });
+  fileKnowledge(ctx, task);
+}
+
+/**
+ * Files what an approved deliverable found (papers, gaps, fields to watch) into the owner's second
+ * brain. Best-effort: a problem here is logged and never fails the task.
+ */
+function fileKnowledge(ctx, task) {
+  const { store, projectPath, config } = ctx;
+  try {
+    if (!task.deliverablePath || !fs.existsSync(task.deliverablePath)) return;
+    const text = fs.readFileSync(task.deliverablePath, 'utf8');
+    const found = fileDeliverable(text, { project: path.basename(projectPath), run: runNoteName(store.state), config });
+    const watched = found.topics.length ? addTopics(found.topics) : 0;
+    if (found.papers || found.gaps || watched) {
+      store.event('knowledge.filed', { taskId: task.id, papers: found.papers, gaps: found.gaps, fields: watched });
+    }
+  } catch (err) {
+    store.event('knowledge.failed', { taskId: task.id, error: err.message });
+  }
 }
 
 async function executePhase(ctx) {
@@ -195,8 +273,12 @@ async function executePhase(ctx) {
       store.event('task.blocked', { taskId: t.id });
     }
     const tasks = store.state.tasks;
-    if (tasks.every((t) => isTerminal(t.status))) return;
-    for (const t of readyTasks(tasks).filter((x) => !running.has(x.id)).slice(0, limit - running.size)) {
+    // A checkpoint was reached: start nothing new, let running tasks finish, then wait for the owner.
+    const checkpoint = openCheckpoint(tasks);
+    if (checkpoint && running.size === 0) throw new CheckpointPause(checkpoint);
+    if (!checkpoint && tasks.every((t) => isTerminal(t.status))) return;
+    const ready = checkpoint ? [] : readyTasks(tasks).filter((x) => !running.has(x.id)).slice(0, limit - running.size);
+    for (const t of ready) {
       updateTask(store, t.id, { status: 'queued' });
       const p = runTask(ctx, t)
         .catch((err) => {
@@ -293,6 +375,12 @@ export async function runEngine(projectPath, runId) {
     store.event('run.paused', { reason: 'usage-limit', resets: err.resets });
     exportNote(projectPath, store);
   };
+  // A checkpoint: everything so far is finished; the run waits for the owner's answer (`hq answer`).
+  const awaitOwner = (err) => {
+    store.update((s) => ({ ...s, status: 'awaiting_owner', pid: null, checkpoint: err.checkpoint, awaitingSince: new Date().toISOString() }));
+    store.event('run.checkpoint', { taskId: err.checkpoint.taskId, question: err.checkpoint.question });
+    exportNote(projectPath, store);
+  };
   // Last line of defence: never leave a run stuck "executing" after a crash.
   process.on('uncaughtException', (err) => { fail(err); process.exit(1); });
   process.on('unhandledRejection', (err) => { fail(err instanceof Error ? err : new Error(String(err))); process.exit(1); });
@@ -310,6 +398,7 @@ export async function runEngine(projectPath, runId) {
   store.event(isResume ? 'run.resumed' : 'run.start', { prompt: store.state.prompt });
   try {
     if (!isResume) await planPhase(ctx, store.state.prompt);
+    if (store.state.replanFrom) await replanPhase(ctx);
     await executePhase(ctx);
     if (org.policies?.boardSignoff !== false) await boardPhase(ctx);
     const failed = store.state.tasks.some((t) => ['failed', 'blocked'].includes(t.status));
@@ -319,6 +408,7 @@ export async function runEngine(projectPath, runId) {
   } catch (err) {
     ctx.abort.abort();
     if (err.code === 'limit') pause(err);
+    else if (err.code === 'checkpoint') awaitOwner(err);
     else fail(err);
   }
 }

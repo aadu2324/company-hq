@@ -16,7 +16,8 @@ let structured = null;
 // Every call is logged as one line (ceo, manager:T1, manager:T2:resume, review:T1, board) so tests can
 // count what ran; FAKE_LIMIT_TASK makes that task's first manager call hit the usage limit once.
 const taskId = prompt.match(/Your task \(([^)]+)\)/)?.[1] || prompt.match(/^Task (\S+) \(/m)?.[1] || '';
-const kind = want.includes('tasks') ? 'ceo' : want.includes('verdict') ? `review:${taskId}` : want.includes('decision') ? 'board' : `manager:${taskId}`;
+const isReplan = prompt.includes("Owner's answer:");
+const kind = want.includes('tasks') ? (isReplan ? 'ceo:replan' : 'ceo') : want.includes('verdict') ? `review:${taskId}` : want.includes('decision') ? 'board' : `manager:${taskId}`;
 const resumed = args.includes('--resume') ? ':resume' : '';
 const isRevision = prompt.includes('REVISION REQUIRED');
 const revision = isRevision ? ':revision' : '';
@@ -31,9 +32,17 @@ if (process.env.FAKE_LIMIT_TASK && kind === `manager:${process.env.FAKE_LIMIT_TA
   process.exit(1);
 }
 
-if (want.includes('tasks')) {
+if (want.includes('tasks') && isReplan && process.env.FAKE_REPLAN_EMPTY) {
+  structured = { goal: 'Nothing more to plan', doneMeans: 'done', questions: [], tasks: [] };
+} else if (want.includes('tasks') && isReplan) {
+  // The re-plan after the owner's answer: one new task building on the approved T1.
+  structured = { goal: 'Pursue the chosen direction', doneMeans: 'done', questions: [], tasks: [
+    { id: 'T3', department: 'outreach', title: 'Chosen direction', brief: `follow the answer: ${prompt.match(/Owner's answer:\s*"""\s*([^\n]+)/)?.[1] || ''}`, dependsOn: ['T1'] },
+  ] };
+} else if (want.includes('tasks')) {
+  // FAKE_CHECKPOINT: T1 (discovery) ends with a question for the owner.
   structured = { goal: 'Launch landing page and outreach', doneMeans: 'drafts ready', questions: [], tasks: [
-    { id: 'T1', department: 'web', title: 'Landing page', brief: 'build it', deliverable: 'page' },
+    { id: 'T1', department: 'web', title: 'Landing page', brief: 'build it', deliverable: 'page', checkpoint: process.env.FAKE_CHECKPOINT ? 'Which gap should we pursue?' : '' },
     { id: 'T2', department: 'outreach', title: 'Cold emails', brief: 'draft them', dependsOn: ['T1'], reviewers: ['legal'] },
   ] };
 } else if (want.includes('verdict')) {

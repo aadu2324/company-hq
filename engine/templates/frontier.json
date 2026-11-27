@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "project": { "type": "frontier" },
+  "executives": [
+    { "id": "ceo", "title": "Research Director", "role": "ceo" },
+    { "id": "cto", "title": "Chief Scientist", "role": "cto", "reportsTo": "ceo" },
+    { "id": "gc",  "title": "Ethics & Integrity Officer", "role": "general-counsel", "reportsTo": "ceo" }
+  ],
+  "departments": [
+    { "id": "discovery", "name": "Frontier & Gap Discovery", "reportsTo": "cto", "manager": "Discovery Lead",
+      "charter": "Maps the field the owner names, finds gaps that are still open, and ranks them by impact, tractability and how verifiable a result would be. Every citation verified.",
+      "workers": ["gap-analyst", "literature-scout"], "reviewers": ["peer-reviewer"] },
+    { "id": "theory", "name": "Theory & Proofs", "reportsTo": "cto", "manager": "Theory Lead",
+      "charter": "Formal statements, proof and derivation attempts, computational checks and Lean formalisation. Proven, conjectured and open are always labelled as such.",
+      "workers": ["theorist", "data-analyst"], "reviewers": ["proof-verifier", "peer-reviewer"] },
+    { "id": "experiments", "name": "Experiments", "reportsTo": "cto", "manager": "Research Engineering Lead",
+      "charter": "Reproduces the strongest baselines first, then runs the new method with fixed seeds and logged configs, sized to the owner's machine. Never reports a result that was not run.",
+      "workers": ["experimentalist", "methodologist", "data-analyst"], "reviewers": ["peer-reviewer", "mle-reviewer"] },
+    { "id": "writing", "name": "Writing & Submission", "reportsTo": "ceo", "manager": "Writing Lead",
+      "charter": "Venue-ready manuscripts (or an honest technical report when a result is not verified), every claim mapped to a checked result, with a submission checklist.",
+      "workers": ["paper-writer", "literature-scout"], "reviewers": ["peer-reviewer", "proof-verifier"] },
+    { "id": "outreach", "name": "Outreach", "reportsTo": "ceo", "manager": "Outreach Lead",
+      "charter": "Drafts to collaborators, experts for feedback, prize committees and venues. Drafts only; the owner sends.",
+      "workers": ["outreach-writer"], "reviewers": ["legal"] },
+    { "id": "integrity", "name": "Ethics & Integrity", "reportsTo": "gc", "manager": "Integrity Lead",
+      "charter": "Authorship and AI-use disclosure under the venue's rules, prize and competition rules, data licences, dual-use risk.",
+      "workers": ["legal-counsel"], "reviewers": ["qa"] }
+  ],
+  "policies": {
+    "maxParallelTasks": 2,
+    "reviewRounds": 2,
+    "strictReview": true,
+    "maxTasks": 6,
+    "outbound": "draft-only",
+    "boardSignoff": true
+  }
+}

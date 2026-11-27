@@ -29,10 +29,17 @@ export function obsidianDir(config = loadConfig()) {
   return dir;
 }
 
-/** A file and link name Obsidian and every OS accept. */
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com\d|lpt\d)(\..*)?$/i;
+
+/**
+ * A file and link name Obsidian and every OS accept. Names that would mean something to the file
+ * system ("." or "..", Windows' CON, NUL, COM1 …) are prefixed so they stay ordinary names.
+ */
 export function safeName(text, max = MAX_NAME) {
   const clean = String(text || '').replace(/[\\/:*?"<>|#^[\]\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
-  return clean.length > max ? clean.slice(0, max).trim() : clean;
+  const cut = (clean.length > max ? clean.slice(0, max).trim() : clean).replace(/[. ]+$/, '');
+  if (!cut) return '';
+  return /^\.+$/.test(cut) || WINDOWS_RESERVED.test(cut) ? `_${cut}` : cut;
 }
 
 const pad = (n) => String(n).padStart(2, '0');

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { templatePath, companyDir } from './config.js';
 import { readJson, writeJsonAtomic } from './fsutil.js';
 
-export const PROJECT_TYPES = ['startup', 'research', 'software'];
+export const PROJECT_TYPES = ['startup', 'research', 'software', 'frontier'];
 
 export function loadTemplate(type) {
   const t = PROJECT_TYPES.includes(type) ? type : 'software';

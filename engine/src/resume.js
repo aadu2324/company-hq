@@ -41,6 +41,35 @@ export function prepareResume(state, now = new Date()) {
   };
 }
 
+const MAX_ANSWER = 4000;
+
+/**
+ * The owner's answer to a checkpoint question: recorded on the run and on its task, and the run is
+ * queued to re-plan the rest around it. Throws unless the run is waiting for the owner.
+ */
+export function answerCheckpoint(state, answer, now = new Date()) {
+  if (!state) throw new Error('run not found');
+  if (state.status !== 'awaiting_owner' || !state.checkpoint) throw new Error(`run ${state.id} is not waiting for an answer (${state.status})`);
+  const text = String(answer || '').trim().slice(0, MAX_ANSWER);
+  if (!text) throw new Error('the answer is empty');
+  const { taskId, question, deliverablePath } = state.checkpoint;
+  return {
+    ...state,
+    status: 'queued',
+    checkpoint: undefined,
+    replanFrom: taskId,
+    pid: null,
+    stopRequested: false,
+    ownerAnswers: [...(state.ownerAnswers || []), { taskId, question, deliverablePath, answer: text, at: now.toISOString() }],
+    tasks: (state.tasks || []).map((t) => (t.id === taskId ? { ...t, checkpointAnswered: true } : t)),
+  };
+}
+
+/** The newest run waiting for the owner, from listRuns order (newest first). */
+export function latestAwaiting(runs) {
+  return runs.find((r) => r.status === 'awaiting_owner') || null;
+}
+
 /** The newest run that can be resumed, from listRuns order (newest first). */
 export function latestResumable(runs) {
   return runs.find((r) => RESUMABLE.has(r.status)) || null;
