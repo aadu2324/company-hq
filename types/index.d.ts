@@ -72,6 +72,8 @@ export type RunView = {
   failed: number
   /** Processes of this run running or waiting right now. */
   live: LiveProc[]
+  /** When the current stretch of work began: the resume, or the start. */
+  runningSince: string
   /** Paused, failed, stopped or partly failed: `hq resume` can carry it on. */
   canResume: boolean
   resumes: number

@@ -49,7 +49,7 @@ test('a run becomes a linked note, with a project index and a dashboard', () => 
   assert.match(note, /\| T1 \| Hero copy \| Web & Landing Pages \| approved \| approve 9\/10 \|/);
   assert.match(note, /Which plan tier\?/);
   const index = fs.readFileSync(path.join(vault, 'Second Brain', 'HQ', 'Acme', 'Acme HQ.md'), 'utf8');
-  assert.match(index, new RegExp(`\\[\\[${runNoteName(PAUSED)}\\]\\]`));
+  assert.ok(index.includes(`[[${runNoteName(PAUSED)}]]`), 'the index links the run note');
   assert.match(fs.readFileSync(path.join(vault, 'Second Brain', 'HQ', 'HQ.md'), 'utf8'), /\[\[Acme HQ\]\]/);
 
   // Re-exporting the finished run rewrites the same note instead of adding another.
@@ -66,6 +66,9 @@ test('nothing is written when Obsidian is not configured, the vault is missing, 
   assert.equal(exportRunToObsidian(proj, PAUSED, { obsidian: { vault: path.join(os.tmpdir(), 'no-such-vault-xyz') } }), null);
   const vault = fs.mkdtempSync(path.join(os.tmpdir(), 'vault-'));
   assert.equal(obsidianDir({ obsidian: { vault, folder: '../outside' } }), null);
+  // A sibling folder that shares the vault's name as a prefix is still outside it.
+  assert.equal(obsidianDir({ obsidian: { vault, folder: `../${path.basename(vault)}2` } }), null);
+  assert.equal(obsidianDir({ obsidian: { vault, folder: 'Notes/HQ' } }), path.join(vault, 'Notes', 'HQ'));
   assert.equal(backfillObsidian(proj, {}), 0);
 });
 
@@ -77,6 +80,13 @@ test('backfill exports every run of a project', () => {
   assert.equal(backfillObsidian(proj, { obsidian: { vault } }), 2);
   const index = fs.readFileSync(path.join(vault, 'HQ', 'Beta', 'Beta HQ.md'), 'utf8');
   assert.equal((index.match(/\[\[2026-11-2/g) || []).length, 2);
+});
+
+test('two runs started in the same minute with the same words get different notes', () => {
+  const a = runNoteName({ ...PAUSED, id: '20261124-140738-aaaa' });
+  const b = runNoteName({ ...PAUSED, id: '20261124-140751-bbbb' });
+  assert.notEqual(a, b);
+  assert.match(a, /\(aaaa\)$/);
 });
 
 test('names are safe for every OS and for wiki links', () => {

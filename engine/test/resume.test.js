@@ -62,6 +62,30 @@ test('the usage limit pauses a run with its work kept, and resume finishes it wi
   assert.match(fs.readFileSync(path.join(runDir, 'events.jsonl'), 'utf8'), /"run.resumed"/);
 });
 
+test('a limit during a revision round resumes that round with the reviewer feedback', () => {
+  const proj = project();
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hqfake-'));
+  const runId = 'revision-run';
+  const runDir = path.join(proj, '.company', 'runs', runId);
+  fs.mkdirSync(runDir, { recursive: true });
+  fs.writeFileSync(path.join(runDir, 'state.json'), JSON.stringify({ id: runId, project: proj, prompt: 'launch it', status: 'queued', tasks: [], cost: 0 }));
+
+  // T1's first review asks for a revision (the fake always does); the revision call hits the limit.
+  const paused = runFake(proj, runId, stateDir, { FAKE_LIMIT_TASK: 'T1', FAKE_LIMIT_ON_REVISION: '1' });
+  assert.equal(paused.status, 'paused', paused.error);
+  assert.equal(paused.tasks[0].round, 1, 'paused in revision round 1');
+  assert.equal(paused.tasks[0].verdict.verdict, 'revise');
+  const before = calls(stateDir);
+
+  fs.writeFileSync(path.join(runDir, 'state.json'), JSON.stringify(prepareResume(paused)));
+  const done = runFake(proj, runId, stateDir);
+  assert.equal(done.status, 'done', done.error);
+  const after = calls(stateDir).slice(before.length);
+  assert.equal(after[0], 'manager:T1:resume:revision', `continues round 1 with the review feedback: ${after}`);
+  assert.equal(after.filter((c) => c.startsWith('manager:T1')).length, 1, `T1's first attempt is not redone: ${after}`);
+  assert.equal(done.tasks[0].round, 1);
+});
+
 test('without the usage limit the same run is not paused', () => {
   const proj = project();
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hqfake-'));

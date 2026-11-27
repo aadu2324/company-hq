@@ -52,7 +52,9 @@ async function claudeInSlot(ctx, { label, taskId, isManager = false, ...opts }) 
     maxProcesses: config.maxProcesses, minFreeMemMB: config.minFreeMemMB,
     starvationGraceSec: config.starvationGraceSec, pollMs: config.pollMs, label,
     meta: { project: String(ctx.org.project?.name || path.basename(ctx.projectPath)), runId: ctx.runId, taskId: taskId || null },
-    isStopped: () => stopped(ctx),
+    // A run-ending error elsewhere (usage limit, auth, stop) aborts the run: stop waiting for a slot too,
+    // or a sibling queued behind another project could hold the run open for a long time.
+    isStopped: () => stopped(ctx) || ctx.abort.signal.aborted,
     onWait: ({ live, freeMB }) => {
       if (!waited) store.event('slot.wait', { label, taskId, live, freeMB });
       waited = true;
@@ -83,11 +85,12 @@ async function claudeInSlot(ctx, { label, taskId, isManager = false, ...opts }) 
     store.update((s) => ({ ...s, cost: (s.cost || 0) + (res.cost || 0) }));
     store.event('process.end', { label, taskId, ok: res.ok, cost: res.cost, error: res.error || undefined });
     if (res.auth) throw Object.assign(new Error(res.error), { code: 'auth' });
-    if (res.limited) {
-      // Keep the interrupted manager's conversation so `hq resume` continues it (never a reviewer's).
-      if (isManager && taskId && res.sessionId) updateTask(store, taskId, { sessionId: res.sessionId });
-      throw new LimitError(res.resets);
+    // Keep an interrupted manager's conversation (never a reviewer's) so `hq resume` continues it, whether
+    // this process hit the limit itself or was cut short because a sibling did.
+    if ((res.limited || res.aborted) && isManager && taskId && res.sessionId) {
+      updateTask(store, taskId, { sessionId: res.sessionId });
     }
+    if (res.limited) throw new LimitError(res.resets);
     if (res.aborted) throw new StopError();
     return res;
   } finally {
@@ -127,6 +130,12 @@ async function review(ctx, task) {
   return res.structured;
 }
 
+/** The reviewer's verdict as the manager's revision brief. */
+function revisionFeedback(verdict) {
+  const issues = Array.isArray(verdict?.issues) ? verdict.issues : [];
+  return [verdict?.summary || '', ...issues.map((i) => (typeof i === 'string' ? i : JSON.stringify(i)))].join('\n- ');
+}
+
 /** Manager executes, panel reviews, manager revises — up to policies.reviewRounds revisions. */
 async function runTask(ctx, task) {
   const { org, catalog, config, store } = ctx;
@@ -134,10 +143,12 @@ async function runTask(ctx, task) {
   const rounds = Math.min(org.policies?.reviewRounds ?? 2, config.reviewRounds ?? 2);
   const depFiles = task.dependsOn.map((d) => store.deliverable(d));
   const systemPromptFile = store.promptFile(`manager-${task.id}`, P.managerSystem({ org, catalog, dept, maxWorkers: config.maxWorkers }));
-  // A resumed task picks its manager's conversation back up instead of starting over.
+  // A resumed task picks its manager's conversation back up instead of starting over, in the round it was
+  // in, with the review feedback that round was answering (task.round is the round in progress).
   let sessionId = task.sessionId || null;
-  let feedback = null;
-  for (let round = 0; round <= rounds; round += 1) {
+  const startRound = sessionId ? Math.min(Number(task.round) || 0, rounds) : 0;
+  let feedback = startRound > 0 && task.verdict?.verdict === 'revise' ? revisionFeedback(task.verdict) : null;
+  for (let round = startRound; round <= rounds; round += 1) {
     if (stopped(ctx)) throw new StopError();
     updateTask(store, task.id, { status: round ? 'revising' : 'running', round });
     const res = await claudeInSlot(ctx, {
@@ -166,7 +177,7 @@ async function runTask(ctx, task) {
       updateTask(store, task.id, { unresolvedReview: true });
       break;
     }
-    feedback = [verdict.summary, ...(verdict.issues || [])].join('\n- ');
+    feedback = revisionFeedback(verdict);
   }
   updateTask(store, task.id, { status: 'approved' });
   store.event('task.approved', { taskId: task.id });

@@ -10,7 +10,7 @@ off, while you watch the whole org chart work live beside the chat.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-d97757.svg)](LICENSE)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-1c1917.svg)](https://docs.claude.com/en/docs/claude-code)
-[![Version](https://img.shields.io/badge/version-0.3.0-78c88c.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.1-78c88c.svg)](CHANGELOG.md)
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-78c88c.svg)](https://nodejs.org)
 [![Agents](https://img.shields.io/badge/role%20agents-19-d97757.svg)](agents)
 
@@ -210,6 +210,7 @@ Optional. Create `~/.claude/company/config.json` with any of these keys:
 | `profile` | `lean` | `lean` or `thorough`, see [Usage and speed](#usage-and-speed) |
 | `models` | from the profile | Model per role: `ceo`, `board`, `orgDesigner`, `manager`, `reviewer` |
 | `effort` | from the profile | Effort per role (`low`, `medium`, `high`) |
+| `isolate` | from the profile | `false` keeps your hooks, MCP servers and skills in background processes |
 | `obsidian` | off | `{ "vault": "<vault folder>", "folder": "HQ" }` writes a note per run into your vault |
 | `permissionMode` | `acceptEdits` | Permission mode for background processes |
 | `processTimeoutMin` | `90` | A process running longer than this is stopped |
@@ -226,6 +227,10 @@ template, copy it into `~/.claude/company/templates/`.
   purchasing or signing up, and no commits or pushes unless your request asks for them.
 - **Background permissions.** Managers run with `acceptEdits`, so shell commands outside your Claude Code
   allow-list are refused in background runs.
+- **Your hooks in background runs.** To save usage, the lean profile starts background processes with your hooks,
+  MCP servers and skills turned off. If you rely on hooks as safety guards (secret scanners, commit blockers) or a
+  role needs an MCP tool, set `"isolate": false` to keep lean's other savings with your full setup, or use
+  `"profile": "thorough"`.
 - **A team that came with a repository.** `.company/org.json` becomes part of the prompts, so read one you did
   not write before your first run in that project. Custom roles in it always run as `general-purpose`, with their
   text length-limited.

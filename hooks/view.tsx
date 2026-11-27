@@ -73,7 +73,7 @@ function Header(ui: Ui, snap: Snapshot, frame: number) {
     snap.working ? `${snap.working} agent${snap.working === 1 ? '' : 's'} working` : 'no agents working',
     run ? `${run.done}/${run.tasks.length} tasks approved` : `${snap.departments} departments`,
     run && run.cost ? `$${run.cost.toFixed(2)}` : '',
-    run ? (isRunning ? `running ${ticking(run.startedAt)}` : (run.finishedAt ? `took ${ticking(run.startedAt, Date.parse(run.finishedAt))}` : '')) : '',
+    run ? (isRunning ? `running ${ticking(run.runningSince)}` :(run.finishedAt ? `took ${ticking(run.startedAt, Date.parse(run.finishedAt))}` : '')) : '',
   ].filter(Boolean).join('  ·  ')
   const slotHue: Hue = snap.slots.used >= snap.slots.max ? 'warning' : snap.slots.used ? 'success' : 'inactive'
   return (
@@ -171,7 +171,7 @@ function Now(ui: Ui, run: RunView, frame: number) {
       <Box gap={1}>
         <Text color={hue} bold>{icon} Now</Text>
         {isLive(run) ? <Text color={hue}>{scanner(frame)}</Text> : null}
-        {isPlanning && isLive(run) ? <Text dimColor>{ticking(run.startedAt)}</Text> : null}
+        {isPlanning && isLive(run) ? <Text dimColor>{ticking(run.runningSince)}</Text> : null}
       </Box>
       <Text>{run.now}</Text>
       {run.goal ? <Text dimColor wrap="truncate">Goal: {run.goal}</Text> : null}

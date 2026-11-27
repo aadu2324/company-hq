@@ -23,7 +23,9 @@ export function obsidianDir(config = loadConfig()) {
   if (!vault || !fs.existsSync(vault)) return null;
   const folder = String(config.obsidian.folder || 'HQ').replace(/^[\\/]+|[\\/]+$/g, '');
   const dir = path.resolve(vault, folder);
-  if (!dir.startsWith(path.resolve(vault))) return null; // a folder setting may not leave the vault
+  // A folder setting may not leave the vault. A prefix check would let "../Vault2" through; relative() does not.
+  const inside = path.relative(path.resolve(vault), dir);
+  if (inside.startsWith('..') || path.isAbsolute(inside)) return null;
   return dir;
 }
 
@@ -49,10 +51,15 @@ export function projectName(projectPath, org) {
   return safeName(path.basename(projectPath)) || safeName(org?.project?.name) || 'Project';
 }
 
-/** The note's name for a run: "2026-11-24 1407 continue working". Stable, so re-exports overwrite. */
+/**
+ * The note's name for a run: "2026-11-24 1407 continue working (2966)". Stable, so re-exports overwrite
+ * it; the run id's last part keeps two runs started in the same minute with the same words apart.
+ */
 export function runNoteName(state) {
   const when = stamp(state.createdAt || state.startedAt) || state.id;
-  return safeName(`${when} ${safeName(String(state.prompt || '').split('\n')[0], 40) || state.id}`, 80);
+  const words = safeName(String(state.prompt || '').split('\n')[0], 40) || 'run';
+  const tag = safeName(String(state.id || '').split('-').pop(), 8);
+  return safeName(`${when} ${words}${tag ? ` (${tag})` : ''}`, 90);
 }
 
 const cell = (s) => String(s ?? '').replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ').trim();

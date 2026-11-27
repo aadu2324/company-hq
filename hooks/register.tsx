@@ -31,7 +31,7 @@ const USAGE = [
 ].join('\n')
 
 // Tag changes when Snapshot's fields change, so a value an older version stored is declined.
-const snapshot = atom({ plugin: 'company-hq', key: 'snapshot' } as const, null, { shape: 'snap-3' })
+const snapshot = atom({ plugin: 'company-hq', key: 'snapshot' } as const, null, { shape: 'snap-4' })
 const isBandHidden = atom({ plugin: 'company-hq', key: 'isBandHidden' } as const, false)
 const notice = atom({ plugin: 'company-hq', key: 'notice' } as const, '')
 const tab = atom({ plugin: 'company-hq', key: 'tab' } as const, 'overview' as Tab)

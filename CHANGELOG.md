@@ -3,6 +3,23 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] - 2026-11-26
+
+### Fixed
+- After a usage limit, tasks still waiting for a Claude slot stop waiting at once, so the run pauses instead of
+  staying "executing" until a slot frees up.
+- A task cut short because a sibling hit the limit keeps its manager's conversation, like the task that hit it.
+- A run paused during a revision round resumes that round with the reviewer's feedback, instead of starting the
+  task over and resetting its revision budget.
+- The Obsidian folder setting can no longer point at a sibling folder whose name starts with the vault's name.
+- Two runs started in the same minute with the same request get separate Obsidian notes (the run id is in the name).
+- A review verdict parsed from free text with malformed issues no longer breaks the pane.
+- The "running" timer of a resumed run counts from the resume.
+
+### Changed
+- Documented that the lean profile turns off your hooks in background processes, and added `"isolate": false`
+  to keep them.
+
 ## [0.3.0] - 2026-11-24
 
 ### Added
@@ -71,6 +88,7 @@ The whole company now ships in the plugin: install once and `/hq init`, `/hq run
 - Status row above the prompt with Open and Hide buttons.
 - `/hq`, `/hq run`, `/hq init`, `/hq stop` and `/hq status` commands.
 
+[0.3.1]: https://github.com/aadu2324/company-hq/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/aadu2324/company-hq/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/aadu2324/company-hq/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/aadu2324/company-hq/compare/v0.1.0...v0.1.1

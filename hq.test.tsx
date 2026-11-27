@@ -318,6 +318,19 @@ test('an active run offers no Resume button', async ($, on) => {
   await ui.unmount()
 })
 
+test('a verdict whose issues are not a list still draws the pane', async ($, on) => {
+  const tasks = [{ id: 'T1', department: 'engineering', title: 'Odd verdict', status: 'review', round: 0, workers: [],
+    verdict: { verdict: 'revise', summary: 'parsed from free text', issues: 'not a list' } }]
+  stubEngine(on, withRun({ status: 'executing', tasks }, [{ ts: now(), type: 'review.verdict', taskId: 'T1', verdict: 'revise' }]))
+  await $.session.start({ cwd: '/proj', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'tab-tasks' })
+  expect(await ui.find({ type: 'Text', text: 'Odd verdict' })).toBeTruthy()
+  await ui.press({ key: 'task-T1' })
+  expect(await ui.find({ type: 'Text', text: 'Open issues' })).toBeFalsy()
+  await ui.unmount()
+})
+
 test('a task approved with open review issues is flagged, and its details open on click', async ($, on) => {
   const tasks = [{ id: 'T1', department: 'engineering', title: 'Legacy guard', status: 'approved', round: 1, unresolvedReview: true, workers: [],
     brief: 'Guard the legacy routes', verdict: { verdict: 'revise', score: 6, summary: 'still leaky', issues: ['PHI in logs', 'no rate limit'] } }]

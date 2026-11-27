@@ -18,9 +18,13 @@ let structured = null;
 const taskId = prompt.match(/Your task \(([^)]+)\)/)?.[1] || prompt.match(/^Task (\S+) \(/m)?.[1] || '';
 const kind = want.includes('tasks') ? 'ceo' : want.includes('verdict') ? `review:${taskId}` : want.includes('decision') ? 'board' : `manager:${taskId}`;
 const resumed = args.includes('--resume') ? ':resume' : '';
-if (process.env.FAKE_STATE_DIR) fs.appendFileSync(`${process.env.FAKE_STATE_DIR}/calls.log`, `${kind}${resumed}\n`);
+const isRevision = prompt.includes('REVISION REQUIRED');
+const revision = isRevision ? ':revision' : '';
+if (process.env.FAKE_STATE_DIR) fs.appendFileSync(`${process.env.FAKE_STATE_DIR}/calls.log`, `${kind}${resumed}${revision}\n`);
 const limitMarker = `${process.env.FAKE_STATE_DIR}/limit-hit`;
-if (process.env.FAKE_LIMIT_TASK && kind === `manager:${process.env.FAKE_LIMIT_TASK}` && !fs.existsSync(limitMarker)) {
+// FAKE_LIMIT_ON_REVISION: only the task's revision call hits the limit, not its first attempt.
+const limitsThisCall = !process.env.FAKE_LIMIT_ON_REVISION || isRevision;
+if (process.env.FAKE_LIMIT_TASK && kind === `manager:${process.env.FAKE_LIMIT_TASK}` && limitsThisCall && !fs.existsSync(limitMarker)) {
   fs.writeFileSync(limitMarker, '1');
   out({ type: 'result', subtype: 'success', is_error: true, session_id: sid, total_cost_usd: 0.02,
     result: "You've hit your 5-hour limit · resets 4:20pm (America/Chicago)" });

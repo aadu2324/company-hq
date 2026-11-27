@@ -241,7 +241,8 @@ export function runView(s: Json, deptNames: Map<string, string>, roles: Json, ev
     error: String(t.error ?? ''),
     brief: String(t.brief ?? ''),
     deliverable: String(t.deliverable ?? ''),
-    issues: (t.verdict?.issues ?? []).slice(0, MAX_ISSUES).map((i: unknown) => (typeof i === 'string' ? i : JSON.stringify(i))),
+    // A verdict parsed from free text is not schema-checked: anything but a list of issues shows none.
+    issues: (Array.isArray(t.verdict?.issues) ? t.verdict.issues : []).slice(0, MAX_ISSUES).map((i: unknown) => (typeof i === 'string' ? i : JSON.stringify(i))),
     isUnresolved: Boolean(t.unresolvedReview),
   }))
   const status = String(s.status ?? 'queued')
@@ -271,6 +272,8 @@ export function runView(s: Json, deptNames: Map<string, string>, roles: Json, ev
     done: tasks.filter(t => t.status === 'approved').length,
     failed: tasks.filter(t => t.status === 'failed' || t.status === 'blocked').length,
     live,
+    // A resumed run counts from the resume, not across the paused hours.
+    runningSince: String(s.resumedAt ?? s.startedAt ?? s.createdAt ?? ''),
     canResume: RESUMABLE.has(status),
     resumes: Number(s.resumes) || 0,
   }
