@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-11-26
+
+### Added
+- **Plan tab** (`/hq plan`): the goal, what done means, the owner's decisions, and every task laid out in steps
+  by dependency, each step with its progress, each task as a colour-coded card with its department, reviewers and
+  brief.
+- **Agents tab** (`/hq agents`): everyone working right now (CEO, managers, reviewers, worker agents, agents from
+  your chat) with what each is doing, on which task and for how long; the load per department; and who just
+  finished and how long they took.
+- A "plan at a glance" strip on the Overview: one coloured mark per task, step by step.
+- A second animated README preview, `assets/hq-plan-agents.svg` (`scripts/make-agents-svg.mjs`).
+
 ## [0.4.0] - 2026-11-26
 
 ### Added
@@ -109,6 +121,7 @@ The whole company now ships in the plugin: install once and `/hq init`, `/hq run
 - Status row above the prompt with Open and Hide buttons.
 - `/hq`, `/hq run`, `/hq init`, `/hq stop` and `/hq status` commands.
 
+[0.5.0]: https://github.com/aadu2324/company-hq/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/aadu2324/company-hq/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/aadu2324/company-hq/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/aadu2324/company-hq/compare/v0.2.0...v0.3.0

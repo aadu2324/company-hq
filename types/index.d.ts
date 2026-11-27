@@ -43,6 +43,23 @@ export type TaskRow = {
   isUnresolved: boolean
 }
 
+/** Who an agent is in the company, which decides its icon and colour. */
+export type AgentRole = 'ceo' | 'manager' | 'reviewer' | 'board' | 'worker' | 'chat'
+
+/** One agent's piece of work: a process (CEO, manager, reviewer, Board) or a worker subagent. */
+export type AgentRow = {
+  who: string
+  role: AgentRole
+  doing: string
+  task: string
+  since: string
+  ended: string
+  status: 'working' | 'done' | 'failed'
+}
+
+/** The plan's tasks in steps: a step starts when the steps before it are finished. */
+export type PlanStep = { n: number; taskIds: string[] }
+
 /** A Claude process this run has going right now, or one waiting for a slot. */
 export type LiveProc = { label: string; since: string; isWaiting: boolean; freeMB: number | null }
 
@@ -78,6 +95,10 @@ export type RunView = {
   canResume: boolean
   /** The question the run is waiting on the owner for, with the report it is based on. */
   checkpoint: { question: string; deliverablePath: string } | null
+  doneMeans: string
+  /** Every question the owner has answered on this run, oldest first. */
+  decisions: { question: string; answer: string }[]
+  steps: PlanStep[]
   resumes: number
 }
 
@@ -104,9 +125,11 @@ export type Snapshot = {
   slots: { used: number; max: number; holders: SlotHolder[] }
   /** When the run last wrote anything (ISO), so the pane can say how fresh it is. */
   updatedAt: string
+  /** Every agent of the shown run and the chat: who is working now, and who finished recently. */
+  agents: { working: AgentRow[]; recent: AgentRow[] }
 }
 
-export type Tab = 'overview' | 'team' | 'tasks' | 'activity'
+export type Tab = 'overview' | 'plan' | 'agents' | 'team' | 'tasks' | 'activity'
 
 declare module 'claude-code' {
   interface PluginState {

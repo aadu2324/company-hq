@@ -10,7 +10,7 @@ off, while you watch the whole org chart work live beside the chat.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-d97757.svg)](LICENSE)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-1c1917.svg)](https://docs.claude.com/en/docs/claude-code)
-[![Version](https://img.shields.io/badge/version-0.4.0-78c88c.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.5.0-78c88c.svg)](CHANGELOG.md)
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-78c88c.svg)](https://nodejs.org)
 [![Agents](https://img.shields.io/badge/role%20agents-22-d97757.svg)](agents)
 
@@ -39,12 +39,18 @@ The HQ pane sits beside the chat (or as a corner widget) and tells you, in plain
 | **Status at a glance** | A coloured status pill (Planning, Working, Board review, Done, Done with issues), live agent count, cost and elapsed time, with a spinner while work is under way. |
 | **Where the run is** | A five-stage pipeline (Plan → Build → Review → Board → Report) that lights up as the run moves. |
 | **Now** | One sentence on what is happening: *“Engineering is building ‘Public API’ with 2 agents; Legal is checking ‘Launch emails’.”* If Claude's usage limit stops the work, it says so, with the reset time. |
-| **Tabs** | **Overview** · **Team** (department cards that light up with live workers) · **Tasks** (a card per task with status, round, reviewers and verdict) · **Activity** (every event, colour-coded). Keys `1`–`4` switch tabs. |
+| **Tabs** | **Overview** · **Plan** · **Agents** · **Team** (department cards that light up with live workers) · **Tasks** (a card per task with status, round, reviewers and verdict) · **Activity** (every event, colour-coded). Keys `1`–`6` switch tabs. |
+| **Plan** | The goal, what done means, your decisions, and every task laid out in steps: step 2 starts when step 1 is done. A one-line "plan at a glance" sits on the Overview. `/hq plan` opens it. |
+| **Agents** | Everyone working right now (CEO, managers, reviewers, worker agents, and agents from your chat) with what each is doing, on which task, and for how long; where the work is by department; and who just finished. `/hq agents` opens it. |
 | **Live** | Every Claude process the run has going, each with a ticking timer. A queued run says exactly what it is waiting for: which run holds the slots (in any project) or how much memory is free. Slot dots `●●○` and "updated 3s ago" show it is alive. |
 | **Ask the company** | Type a request straight into the pane and press **Run**. |
 | **Resume** | A run stopped by Claude's usage limit pauses instead of failing. **▶ Resume run** carries on later without redoing approved work. |
 | **Task details** | Open any task card for its brief, deliverable and the reviewer's open issues. Work approved with issues still open is flagged `APPROVED ⚠`. |
 | **Status row** | Above the prompt: `◆ HQ  WORKING  ▰▰▰▱▱ 2/5  Engineering is building “Public API”…  [Open] [Hide]` |
+
+<p align="center">
+  <img src="assets/hq-plan-agents.svg" alt="The Plan tab filling in step by step beside the Agents tab, as agents start and finish" width="860" />
+</p>
 
 ## Features
 

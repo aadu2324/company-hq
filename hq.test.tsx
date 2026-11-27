@@ -341,6 +341,60 @@ test('a run waiting on the owner shows the question, and the answer goes to the 
   await band.unmount()
 })
 
+test('the Plan tab shows the goal, the decisions and every task in its step', async ($, on) => {
+  const tasks = [
+    { id: 'T1', department: 'engineering', title: 'Find gaps', status: 'approved', round: 0, workers: [], dependsOn: [], brief: 'map the field' },
+    { id: 'T2', department: 'outreach', title: 'Draft emails', status: 'running', round: 0, workers: [], dependsOn: ['T1'], brief: 'write them' },
+    { id: 'T3', department: 'engineering', title: 'Build demo', status: 'pending', round: 0, workers: [], dependsOn: ['T1'], brief: 'build' },
+  ]
+  const state = { tasks, plan: { goal: 'Ship the chosen idea', doneMeans: 'demo and emails ready', questions: [] },
+    ownerAnswers: [{ question: 'Which idea?', answer: 'Idea B' }] }
+  stubEngine(on, withRun(state, [{ ts: now(), type: 'process.start', label: 'Sales & Outreach · T2', taskId: 'T2' }]))
+  await $.session.start({ cwd: '/proj', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: 'Plan' })).toBeTruthy() // the glance strip on Overview
+  await ui.press({ key: 'tab-plan' })
+  expect(await ui.find({ type: 'Text', text: 'Ship the chosen idea' })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: 'Done means: demo and emails ready' })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: '✎ Which idea? → Idea B' })).toBeTruthy()
+  expect((await ui.find({ type: 'Text', text: /^1\/1 done/ }))?.text).toBe('1/1 done · starts right away')
+  expect((await ui.find({ type: 'Text', text: /^0\/2 done/ }))?.text).toBe('0/2 done · starts after T1')
+  expect(await ui.find({ type: 'Text', text: 'Build demo' })).toBeTruthy()
+  await ui.unmount()
+})
+
+test('the Agents tab shows who is working on what, and who has finished', async ($, on) => {
+  const t0 = new Date(Date.now() - 120_000).toISOString()
+  const t1 = new Date(Date.now() - 60_000).toISOString()
+  const events = [
+    { ts: t0, type: 'process.start', label: 'Engineering · T1', taskId: 'T1' },
+    { ts: t0, type: 'worker.start', taskId: 'T1', agent: 'general-purpose', description: 'implement endpoints' },
+    { ts: t0, type: 'worker.start', taskId: 'T1', agent: 'ecc:tdd-guide', description: 'write tests' },
+    { ts: t1, type: 'worker.done', taskId: 'T1', agent: 'ecc:tdd-guide', description: 'write tests', status: 'done' },
+  ]
+  stubEngine(on, withRun({}, events))
+  await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'tab-agents' })
+  expect(await ui.find({ type: 'Text', text: /Working now \(2\)/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: 'Engineering · T1' })).toBeTruthy()
+  expect((await ui.find({ type: 'Text', text: /implement endpoints/ }))?.text).toBe('· implement endpoints · Build API')
+  expect(await ui.find({ type: 'Text', text: 'Engineering' })).toBeTruthy() // the load bar row
+  expect(await ui.find({ type: 'Text', text: 'ecc:tdd-guide' })).toBeTruthy() // under Recently finished
+  expect(await ui.find({ type: 'Text', text: '1m 00s' })).toBeTruthy() // how long the test writer took
+  await ui.unmount()
+})
+
+test('/hq plan and /hq agents open the pane on that tab', async ($, on) => {
+  stubEngine(on, disk(true))
+  await $.session.start({ cwd: '/proj', surface: 'desktop', isInteractive: true })
+  expect((await $.command.run({ command: 'hq', args: 'agents' } as any))?.text).toBe('Claude HQ: your agents.')
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /Working now/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /Goal/ })).toBeFalsy()
+  await ui.unmount()
+})
+
 test('a working run shows no answer box', async ($, on) => {
   stubEngine(on, disk(true))
   await $.session.start({ cwd: '/proj', surface: 'desktop', isInteractive: true })

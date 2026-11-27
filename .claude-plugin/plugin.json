@@ -1,6 +1,6 @@
 {
   "name": "company-hq",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Run Claude Code like a company: a Board, executives, departments, workers, reviewers and legal for every project, with a live org-chart pane and /hq commands.",
   "author": { "name": "aadu2324", "url": "https://github.com/aadu2324" },
   "homepage": "https://github.com/aadu2324/company-hq",

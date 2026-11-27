@@ -2,7 +2,7 @@
  * What the HQ pane, its corner widget and the band above the prompt draw. Plain functions of the
  * snapshot: every press goes through `Actions`, so nothing here reaches `$`.
  */
-import type { ExecGroup, FeedItem, Hue, RunView, Snapshot, Tab, TaskRow } from '../types'
+import type { AgentRole, AgentRow, ExecGroup, FeedItem, Hue, RunView, Snapshot, Tab, TaskRow } from '../types'
 import { ACTIVE_RUN, BUSY_TASK, PULSE, SPINNER, STAGES, ago, blocks, clock, runLook, taskLook, ticking } from './model'
 
 /** The elements a surface resolves; each is used through JSX only. */
@@ -41,10 +41,22 @@ function slotDots(used: number, max: number): string {
 
 const TABS: readonly { id: Tab; label: string; hotkey: string }[] = [
   { id: 'overview', label: 'Overview', hotkey: '1' },
-  { id: 'team', label: 'Team', hotkey: '2' },
-  { id: 'tasks', label: 'Tasks', hotkey: '3' },
-  { id: 'activity', label: 'Activity', hotkey: '4' },
+  { id: 'plan', label: 'Plan', hotkey: '2' },
+  { id: 'agents', label: 'Agents', hotkey: '3' },
+  { id: 'team', label: 'Team', hotkey: '4' },
+  { id: 'tasks', label: 'Tasks', hotkey: '5' },
+  { id: 'activity', label: 'Activity', hotkey: '6' },
 ]
+
+const ROLE_LOOK: Record<AgentRole, { icon: string; hue: Hue; label: string }> = {
+  ceo: { icon: '◆', hue: 'planMode', label: 'CEO' },
+  manager: { icon: '■', hue: 'suggestion', label: 'Manager' },
+  reviewer: { icon: '⚖', hue: 'merged', label: 'Reviewer' },
+  board: { icon: '★', hue: 'claude', label: 'Board' },
+  worker: { icon: '●', hue: 'success', label: 'Worker' },
+  chat: { icon: '◇', hue: 'remember', label: 'From chat' },
+}
+const BAR_WIDTH = 10
 const TASKS_ON_OVERVIEW = 5
 const FEED_ON_OVERVIEW = 5
 const RUNS_LISTED = 5
@@ -272,6 +284,150 @@ function busyFirst(tasks: TaskRow[]): TaskRow[] {
   return [...tasks].sort((a, b) => rank(a) - rank(b))
 }
 
+// ---------- plan ----------
+
+/** One status mark per task, step by step: Step 1 ✓✓ → Step 2 ●○ → Step 3 ○ */
+function Glance(ui: Ui, run: RunView, frame: number) {
+  const { Box, Text } = ui
+  if (!run.steps.length) return null
+  const byId = new Map(run.tasks.map(t => [t.id, t]))
+  return (
+    <Box gap={1} flexWrap="wrap">
+      <Text dimColor>Plan</Text>
+      {run.steps.map((s, i) => (
+        <Box key={`glance-${s.n}`} gap={1}>
+          {i > 0 ? <Text dimColor>→</Text> : null}
+          <Text dimColor>{s.n}</Text>
+          {s.taskIds.map(id => {
+            const t = byId.get(id)
+            if (!t) return null
+            const look = lookOf(t)
+            return <Text color={look.hue}>{BUSY_TASK.has(t.status) && t.status !== 'queued' ? pulse(frame) : look.icon}</Text>
+          })}
+        </Box>
+      ))}
+    </Box>
+  )
+}
+
+/** The whole plan: goal, what done means, the owner's decisions, and every task step by step. */
+function Plan(ui: Ui, run: RunView | null, frame: number) {
+  const { Box, Text } = ui
+  if (!run || !run.tasks.length) {
+    return <Text dimColor>{run?.status === 'planning' || run?.status === 'queued' ? `${spin(frame)} The CEO is writing the plan…` : 'No plan yet. Ask the company for something on the Overview tab.'}</Text>
+  }
+  const byId = new Map(run.tasks.map(t => [t.id, t]))
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Box borderStyle="round" borderColor="planMode" paddingX={1} flexDirection="column">
+        <Text color="planMode" bold>◆ Goal</Text>
+        <Text>{run.goal || run.prompt}</Text>
+        {run.doneMeans ? <Text dimColor maxLines={4}>Done means: {run.doneMeans}</Text> : null}
+      </Box>
+      {run.decisions.length ? (
+        <Box flexDirection="column">
+          <Text color="permission" bold>Your decisions</Text>
+          {run.decisions.map(d => <Text maxLines={3}>✎ {d.question} → {d.answer}</Text>)}
+        </Box>
+      ) : null}
+      {run.questions.length ? <Box flexDirection="column">{run.questions.map(q => <Text color="warning">? {q}</Text>)}</Box> : null}
+      {run.steps.map(s => {
+        const tasks = s.taskIds.map(id => byId.get(id)).filter((t): t is TaskRow => Boolean(t))
+        const done = tasks.filter(t => t.status === 'approved').length
+        const after = [...new Set(tasks.flatMap(t => t.dependsOn))]
+        return (
+          <Box key={`step-${s.n}`} flexDirection="column">
+            <Box gap={1}>
+              <Text bold>Step {s.n}</Text>
+              <Text color={done === tasks.length ? 'success' : 'inactive'}>{blocks(done, tasks.length, Math.min(BAR_WIDTH, Math.max(3, tasks.length * 2)))}</Text>
+              <Text dimColor>{done}/{tasks.length} done{after.length ? ` · starts after ${after.join(', ')}` : ' · starts right away'}</Text>
+            </Box>
+            {tasks.map(t => {
+              const look = lookOf(t)
+              const busy = BUSY_TASK.has(t.status) && t.status !== 'queued'
+              return (
+                <Box key={`plan-${t.id}`} borderStyle="round" borderColor={look.hue} paddingX={1} marginLeft={2} flexDirection="column">
+                  <Box gap={1}>
+                    <Text color={look.hue}>{busy ? spin(frame) : look.icon}</Text>
+                    <Text bold wrap="truncate">{t.title}</Text>
+                    {Pill(ui, look.label, look.hue)}
+                  </Box>
+                  <Text dimColor wrap="truncate">{t.department}{t.reviewers.length ? ` · reviewed by ${t.reviewers.join(', ')}` : ''}{t.working.length ? ` · ${t.working.length} agent(s) on it` : ''}</Text>
+                  {t.brief ? <Text maxLines={2}>{t.brief}</Text> : null}
+                </Box>
+              )
+            })}
+          </Box>
+        )
+      })}
+    </Box>
+  )
+}
+
+// ---------- agents ----------
+
+function AgentLine(ui: Ui, a: AgentRow, frame: number, taskTitle: (id: string) => string) {
+  const { Box, Text } = ui
+  const look = ROLE_LOOK[a.role]
+  const isWorking = a.status === 'working'
+  const mark = isWorking ? spin(frame + a.who.length) : a.status === 'failed' ? '✗' : '✓'
+  const markHue: Hue = isWorking ? look.hue : a.status === 'failed' ? 'error' : 'success'
+  const time = isWorking ? ticking(a.since) : a.ended && a.since ? ticking(a.since, Date.parse(a.ended)) : ''
+  return (
+    <Box gap={1}>
+      <Text color={markHue}>{mark}</Text>
+      <Text color={look.hue}>{look.icon}</Text>
+      <Text bold={isWorking} wrap="truncate">{a.who}</Text>
+      <Text dimColor wrap="truncate">{a.doing ? `· ${a.doing}` : ''}{a.task ? ` · ${taskTitle(a.task)}` : ''}</Text>
+      <Text dimColor>{time}</Text>
+    </Box>
+  )
+}
+
+/** Every agent: who is working right now and on what, the load per department, and who just finished. */
+function Agents(ui: Ui, snap: Snapshot, frame: number) {
+  const { Box, Text } = ui
+  const { working, recent } = snap.agents
+  const tasks = new Map((snap.run?.tasks ?? []).map(t => [t.id, t]))
+  const taskTitle = (id: string) => tasks.get(id)?.title ?? id
+  const perDept = new Map<string, number>()
+  for (const a of working) {
+    const dept = a.role === 'chat' ? 'Your chat' : tasks.get(a.task)?.department ?? (a.role === 'ceo' ? 'CEO' : a.role === 'board' ? 'Board' : 'Company')
+    perDept.set(dept, (perDept.get(dept) ?? 0) + 1)
+  }
+  const most = Math.max(1, ...perDept.values())
+  return (
+    <Box flexDirection="column" gap={1}>
+      <Box gap={2} flexWrap="wrap">
+        {(Object.keys(ROLE_LOOK) as AgentRole[]).map(r => <Text color={ROLE_LOOK[r].hue}>{ROLE_LOOK[r].icon} {ROLE_LOOK[r].label}</Text>)}
+      </Box>
+      <Box borderStyle="round" borderColor={working.length ? 'success' : 'subtle'} paddingX={1} flexDirection="column">
+        <Box gap={1}>
+          <Text color={working.length ? 'success' : 'inactive'} bold>{working.length ? spin(frame) : '○'} Working now ({working.length})</Text>
+          {working.length ? <Text color="claude">{scanner(frame, 14)}</Text> : null}
+        </Box>
+        {working.length ? working.map(a => AgentLine(ui, a, frame, taskTitle)) : <Text dimColor>Nobody is working right now.</Text>}
+      </Box>
+      {perDept.size ? (
+        <Box flexDirection="column">
+          <Text bold>Where the work is</Text>
+          {[...perDept.entries()].sort((a, b) => b[1] - a[1]).map(([dept, n]) => (
+            <Box key={`load-${dept}`} gap={1}>
+              <Text color="success">{'▰'.repeat(Math.max(1, Math.round((n / most) * BAR_WIDTH)))}</Text>
+              <Text>{dept}</Text>
+              <Text dimColor>{n}</Text>
+            </Box>
+          ))}
+        </Box>
+      ) : null}
+      <Box flexDirection="column">
+        <Text bold>Recently finished</Text>
+        {recent.length ? recent.map(a => AgentLine(ui, a, frame, taskTitle)) : <Text dimColor>Nothing yet.</Text>}
+      </Box>
+    </Box>
+  )
+}
+
 // ---------- team ----------
 
 function Team(ui: Ui, groups: ExecGroup[], frame: number) {
@@ -371,6 +527,7 @@ function Overview(ui: Ui, snap: Snapshot, state: PaneState, actions: Actions) {
   return (
     <Box flexDirection="column" gap={1}>
       {Pipeline(ui, run, state.frame)}
+      {Glance(ui, run, state.frame)}
       {Now(ui, run, state.frame)}
       {snap.isLatest ? Decision(ui, run, actions) : null}
       {Live(ui, snap, state.frame)}
@@ -481,7 +638,9 @@ export function paneView(ui: Ui, snap: Snapshot | null, state: PaneState, placem
   if (!snap.hasTeam) return NoTeam(ui, snap, state.notice, actions)
   const run = snap.run
   const body =
-    state.tab === 'team' ? Team(ui, snap.org, state.frame)
+    state.tab === 'plan' ? Plan(ui, run, state.frame)
+    : state.tab === 'agents' ? Agents(ui, snap, state.frame)
+    : state.tab === 'team' ? Team(ui, snap.org, state.frame)
       : state.tab === 'tasks' ? (run && run.tasks.length
         ? <Box flexDirection="column">{busyFirst(run.tasks).map(t => TaskCard(ui, t, state.frame, state.openTask === t.id, actions))}</Box>
         : <Text dimColor>No tasks yet. Ask the company for something on the Overview tab.</Text>)

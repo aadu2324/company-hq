@@ -3,7 +3,7 @@ import type { EngineInterface as Engine, Register, Timer } from 'claude-code'
 
 import type { Snapshot, Tab } from '../types'
 import {
-  ACTIVE_RUN, busyAgents, dedupeChatEvents, feedItem, orgGroups, runBrief, runView, type Json,
+  ACTIVE_RUN, agentRoster, busyAgents, dedupeChatEvents, feedItem, orgGroups, runBrief, runView, type Json,
 } from './model'
 import { bandView, paneView, type Actions, type Ui } from './view'
 
@@ -20,9 +20,11 @@ const NO_TEAM_RECHECK_MS = 30_000
 const CHAT_FEED_MS = 3_600_000
 const MAX_OPEN_SPAWNS = 200
 const TEAM_TYPES = new Set(['startup', 'research', 'software', 'frontier'])
-const TABS = new Set<Tab>(['overview', 'team', 'tasks', 'activity'])
+const TABS = new Set<Tab>(['overview', 'plan', 'agents', 'team', 'tasks', 'activity'])
 const USAGE = [
   '/hq                 open the HQ pane',
+  '/hq plan            the full plan, step by step',
+  '/hq agents          every agent, what it is doing now',
   '/hq run <request>   hand a request to the company (runs in the background)',
   '/hq init [startup|research|software|frontier]   hire a team for this project',
   '/hq answer <text>   answer the question a run is waiting on',
@@ -32,7 +34,7 @@ const USAGE = [
 ].join('\n')
 
 // Tag changes when Snapshot's fields change, so a value an older version stored is declined.
-const snapshot = atom({ plugin: 'company-hq', key: 'snapshot' } as const, null, { shape: 'snap-5' })
+const snapshot = atom({ plugin: 'company-hq', key: 'snapshot' } as const, null, { shape: 'snap-6' })
 const isBandHidden = atom({ plugin: 'company-hq', key: 'isBandHidden' } as const, false)
 const notice = atom({ plugin: 'company-hq', key: 'notice' } as const, '')
 const tab = atom({ plugin: 'company-hq', key: 'tab' } as const, 'overview' as Tab)
@@ -139,7 +141,7 @@ async function buildSnapshot($: Engine, cwd: string, home: string, picked: strin
   const name = root.split(/[\\/]/).filter(Boolean).pop() ?? root
   const empty: Snapshot = {
     root, hasTeam: false, projectName: name, type: '', departments: 0, org: [], runs: [], run: null,
-    isLatest: true, feed: [], activeRuns: 0, working: 0, slots: { used: 0, max: 2, holders: [] }, updatedAt: '',
+    isLatest: true, feed: [], activeRuns: 0, working: 0, slots: { used: 0, max: 2, holders: [] }, updatedAt: '', agents: { working: [], recent: [] },
   }
   if (!org) return empty
   cache.roles ??= await loadRoles($, live.pluginRoot, home)
@@ -171,6 +173,7 @@ async function buildSnapshot($: Engine, cwd: string, home: string, picked: strin
     working: [...busy.values()].reduce((a, b) => a + b, 0),
     slots: { used: slots.holders.length, max: slots.max, holders: slots.holders.map(h => ({ label: h.label, project: h.project, since: h.since, isThisRun: Boolean(current && h.runId === current.id) })) },
     updatedAt: String(runEvents.at(-1)?.ts ?? current?.updatedAt ?? ''),
+    agents: agentRoster([...runEvents, ...chat.filter(e => now - Date.parse(e.ts) < CHAT_FEED_MS)]),
   }
 }
 
@@ -313,7 +316,7 @@ export const register: Register = on => {
     live.pluginRoot = $.plugin.root
     live.isInteractive = e.isInteractive
     live.isLoggingChat = e.isInteractive && !(await $.env.get('HQ_RUN_ID'))
-    await $.command.register({ name: 'hq', description: 'Company HQ: open the company pane, or run / init / stop / status', argumentHint: '[run <request> | answer <text> | init [type] | stop | resume | status]' })
+    await $.command.register({ name: 'hq', description: 'Company HQ: open the company pane, or run / init / stop / status', argumentHint: '[run <request> | plan | agents | answer <text> | init [type] | stop | resume | status]' })
     await refresh($)
     live.timer?.cancel?.()
     live.timer = null
@@ -366,6 +369,11 @@ export const register: Register = on => {
     if (sub === '') {
       await $.ui.open({ id: PANE, title: TITLE })
       return { text: 'Claude HQ pane opened.' }
+    }
+    if (sub === 'plan' || sub === 'agents') {
+      await update($, tab, () => sub as Tab)
+      await $.ui.open({ id: PANE, title: TITLE })
+      return { text: `Claude HQ: ${sub === 'plan' ? 'the full plan' : 'your agents'}.` }
     }
     if (sub === 'run') {
       const request = e.args.trim().slice(3).trim()

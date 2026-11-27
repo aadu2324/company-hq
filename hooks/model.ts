@@ -2,7 +2,7 @@
  * Pure functions from the company's files to what the pane draws. Nothing here touches `$`,
  * so every rule (stages, narration, colours, dedupe) is testable on plain objects.
  */
-import type { DeptCard, ExecGroup, FeedItem, Hue, LiveProc, RunBrief, RunView, SlotHolder, Stage, TaskRow, Verdict } from '../types'
+import type { AgentRole, AgentRow, DeptCard, ExecGroup, FeedItem, Hue, LiveProc, PlanStep, RunBrief, RunView, SlotHolder, Stage, TaskRow, Verdict } from '../types'
 
 export type Json = Record<string, any>
 
@@ -277,11 +277,85 @@ export function runView(s: Json, deptNames: Map<string, string>, roles: Json, ev
     // A resumed run counts from the resume, not across the paused hours.
     runningSince: String(s.resumedAt ?? s.startedAt ?? s.createdAt ?? ''),
     canResume: RESUMABLE.has(status),
+    doneMeans: String(s.plan?.doneMeans ?? ''),
+    decisions: (Array.isArray(s.ownerAnswers) ? s.ownerAnswers : []).map((a: Json) => ({ question: String(a.question ?? ''), answer: String(a.answer ?? '') })),
+    steps: planSteps(s.tasks ?? []),
     checkpoint: status === 'awaiting_owner' && s.checkpoint
       ? { question: String(s.checkpoint.question ?? ''), deliverablePath: String(s.checkpoint.deliverablePath ?? '') }
       : null,
     resumes: Number(s.resumes) || 0,
   }
+}
+
+/**
+ * The plan as steps: a task with no dependencies is step 1; otherwise one after its latest dependency.
+ * Dependencies outside the plan (or cycles, which validation rejects anyway) count as step 1.
+ */
+export function planSteps(tasks: Json[]): PlanStep[] {
+  const byId = new Map(tasks.map(t => [String(t.id), t]))
+  const level = new Map<string, number>()
+  const levelOf = (id: string, seen: Set<string>): number => {
+    if (level.has(id)) return level.get(id) as number
+    const t = byId.get(id)
+    if (!t || seen.has(id)) return 0
+    seen.add(id)
+    const deps = (t.dependsOn ?? []).map(String).filter((d: string) => byId.has(d))
+    const n = deps.length ? 1 + Math.max(...deps.map((d: string) => levelOf(d, seen))) : 0
+    level.set(id, n)
+    return n
+  }
+  for (const t of tasks) levelOf(String(t.id), new Set())
+  const steps: PlanStep[] = []
+  for (const t of tasks) {
+    const n = level.get(String(t.id)) ?? 0
+    while (steps.length <= n) steps.push({ n: steps.length + 1, taskIds: [] })
+    steps[n]!.taskIds.push(String(t.id))
+  }
+  return steps.filter(s => s.taskIds.length)
+}
+
+const RECENT_AGENTS = 12
+
+/** Who a process is in the company, from its label ("CEO · plan", "Review · T1", "Engineering · T2"). */
+export function roleOf(label: string): AgentRole {
+  if (/^CEO|^Org designer/.test(label)) return 'ceo'
+  if (/^Review/.test(label)) return 'reviewer'
+  if (/^Board/.test(label)) return 'board'
+  return 'manager'
+}
+
+/**
+ * Every agent's piece of work from the run's events and the chat's: processes (CEO, managers,
+ * reviewers, Board) from process.start/end, worker subagents from worker.start/done. Open ones are
+ * working; closed ones are recent, newest first.
+ */
+export function agentRoster(events: Json[]): { working: AgentRow[]; recent: AgentRow[] } {
+  const open: AgentRow[] = []
+  const closed: AgentRow[] = []
+  const close = (match: (a: AgentRow) => boolean, ts: string, failed: boolean) => {
+    const i = open.findIndex(match)
+    if (i < 0) return
+    const [row] = open.splice(i, 1)
+    closed.push({ ...row!, ended: ts, status: failed ? 'failed' : 'done' })
+  }
+  for (const ev of [...events].sort((a, b) => String(a.ts).localeCompare(String(b.ts)))) {
+    const ts = String(ev.ts ?? '')
+    const isChat = ev.source === 'interactive'
+    if (ev.type === 'process.start') {
+      const label = String(ev.label ?? '')
+      open.push({ who: label, role: roleOf(label), doing: roleOf(label) === 'reviewer' ? 'reviewing the work' : roleOf(label) === 'ceo' ? 'planning' : roleOf(label) === 'board' ? 'signing off' : 'running the task', task: String(ev.taskId ?? ''), since: ts, ended: '', status: 'working' })
+    } else if (ev.type === 'process.end') {
+      close(a => a.who === ev.label && a.role !== 'worker' && a.role !== 'chat', ts, !ev.ok)
+    } else if (ev.type === 'worker.start') {
+      open.push({ who: String(ev.agent ?? 'agent'), role: isChat ? 'chat' : 'worker', doing: String(ev.description ?? ''), task: String(ev.taskId ?? ''), since: ts, ended: '', status: 'working' })
+    } else if (ev.type === 'worker.done') {
+      close(a => (a.role === 'worker' || a.role === 'chat') && a.who === ev.agent && a.doing === String(ev.description ?? a.doing), ts, ev.status === 'failed')
+    } else if (ev.type === 'run.end' || ev.type === 'run.paused' || ev.type === 'run.checkpoint') {
+      // The run stopped: whatever its processes had open ended with it (chat agents are separate).
+      for (const a of open.filter(x => x.role !== 'chat')) close(x => x === a, ts, ev.type === 'run.end' && ev.status !== 'done')
+    }
+  }
+  return { working: open, recent: closed.sort((a, b) => b.ended.localeCompare(a.ended)).slice(0, RECENT_AGENTS) }
 }
 
 /** "3m 07s" / "1h 04m": a live counter, recomputed every animation frame. */
