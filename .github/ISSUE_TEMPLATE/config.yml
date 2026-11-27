@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/aadu2324/company-hq/discussions
+    about: Ask how to use HQ, share your team setups and runs.
+  - name: Report a security issue
+    url: https://github.com/aadu2324/company-hq/security/advisories/new
+    about: Please report vulnerabilities privately.

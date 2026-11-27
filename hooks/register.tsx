@@ -26,16 +26,18 @@ const USAGE = [
   '/hq run <request>   hand a request to the company (runs in the background)',
   '/hq init [startup|research|software]   hire a team for this project',
   '/hq stop            stop the active run',
+  '/hq resume          carry on a paused or unfinished run (keeps approved work)',
   '/hq status          recent runs',
 ].join('\n')
 
 // Tag changes when Snapshot's fields change, so a value an older version stored is declined.
-const snapshot = atom({ plugin: 'company-hq', key: 'snapshot' } as const, null, { shape: 'snap-2' })
+const snapshot = atom({ plugin: 'company-hq', key: 'snapshot' } as const, null, { shape: 'snap-3' })
 const isBandHidden = atom({ plugin: 'company-hq', key: 'isBandHidden' } as const, false)
 const notice = atom({ plugin: 'company-hq', key: 'notice' } as const, '')
 const tab = atom({ plugin: 'company-hq', key: 'tab' } as const, 'overview' as Tab)
 const pickedRun = atom({ plugin: 'company-hq', key: 'pickedRun' } as const, '')
 const frame = atom({ plugin: 'company-hq', key: 'frame' } as const, 0)
+const openTask = atom({ plugin: 'company-hq', key: 'openTask' } as const, '')
 
 // ---------- reading the company's files ----------
 
@@ -93,6 +95,34 @@ async function loadRoles($: Engine, pluginRoot: string, home: string): Promise<J
   return { ...bundled, ...user }
 }
 
+const STALE_SLOT_MS = 3 * 60 * 60 * 1000
+const DEFAULT_MAX_PROCESSES = 2
+
+type Slot = { label: string; project: string; since: string; runId: string }
+
+/**
+ * Who holds the machine's Claude process slots right now, across every project's HQ runs.
+ * A slot file older than 3 hours is a leftover of an engine that died and is ignored.
+ */
+async function readSlots($: Engine, home: string): Promise<{ max: number; holders: Slot[] }> {
+  const companyHome = join(home, '.claude', 'company')
+  const max = Number((await readJson($, join(companyHome, 'config.json')))?.maxProcesses) || DEFAULT_MAX_PROCESSES
+  let names: string[] = []
+  try {
+    names = (await $.fs.list(join(companyHome, 'state', 'slots'))).filter(e => e.kind === 'file').map(e => e.name)
+  } catch {
+    return { max, holders: [] }
+  }
+  const now = Date.now()
+  const slots = await Promise.all(names.map(n => readJson($, join(companyHome, 'state', 'slots', n))))
+  const holders = slots.flatMap(s => {
+    const ts = Number(s?.ts)
+    if (!s || !Number.isFinite(ts) || now - ts > STALE_SLOT_MS) return []
+    return [{ label: String(s.label ?? 'Claude process'), project: String(s.project ?? ''), since: new Date(ts).toISOString(), runId: String(s.runId ?? '') }]
+  })
+  return { max, holders: holders.sort((a, b) => a.since.localeCompare(b.since)) }
+}
+
 // Per-load caches: the catalog rarely changes (a reload re-reads it), and the last good parse of each
 // run's state.json stands in while the engine is mid-write, so the pane does not flicker.
 const cache = { roles: null as Json | null, states: new Map<string, Json>() }
@@ -108,7 +138,7 @@ async function buildSnapshot($: Engine, cwd: string, home: string, picked: strin
   const name = root.split(/[\\/]/).filter(Boolean).pop() ?? root
   const empty: Snapshot = {
     root, hasTeam: false, projectName: name, type: '', departments: 0, org: [], runs: [], run: null,
-    isLatest: true, feed: [], activeRuns: 0, working: 0,
+    isLatest: true, feed: [], activeRuns: 0, working: 0, slots: { used: 0, max: 2, holders: [] }, updatedAt: '',
   }
   if (!org) return empty
   cache.roles ??= await loadRoles($, live.pluginRoot, home)
@@ -119,6 +149,7 @@ async function buildSnapshot($: Engine, cwd: string, home: string, picked: strin
   const current = (picked && states.find(s => s.id === picked)) || latest
   const chat = dedupeChatEvents(await readJsonlTail($, join(root, '.company', 'events.jsonl')))
   const runEvents = current ? await readJsonlTail($, join(root, '.company', 'runs', current.id, 'events.jsonl')) : []
+  const slots = await readSlots($, home)
   const busy = busyAgents(latest, chat)
   const now = Date.now()
   const feed = [...runEvents, ...chat.filter(e => now - Date.parse(e.ts) < CHAT_FEED_MS)]
@@ -132,11 +163,13 @@ async function buildSnapshot($: Engine, cwd: string, home: string, picked: strin
     departments: (org.departments ?? []).length,
     org: orgGroups(org, roles, latest, busy),
     runs: states.map(runBrief),
-    run: current ? runView(current, deptNames, roles) : null,
+    run: current ? runView(current, deptNames, roles, runEvents, slots.holders.map(h => ({ ...h, isThisRun: h.runId === current.id }))) : null,
     isLatest: !current || !latest || current.id === latest.id,
     feed,
     activeRuns: states.filter(s => ACTIVE_RUN.has(s.status)).length,
     working: [...busy.values()].reduce((a, b) => a + b, 0),
+    slots: { used: slots.holders.length, max: slots.max, holders: slots.holders.map(h => ({ label: h.label, project: h.project, since: h.since, isThisRun: Boolean(current && h.runId === current.id) })) },
+    updatedAt: String(runEvents.at(-1)?.ts ?? current?.updatedAt ?? ''),
   }
 }
 
@@ -258,6 +291,11 @@ function actionsFor($: Engine, root: string): Actions {
     },
     hire: type => { void act($, ['init', root, '--background', ...(type && TEAM_TYPES.has(type) ? ['--type', type] : [])]) },
     stop: runId => { void act($, ['stop', root, runId]) },
+    resume: runId => {
+      void update($, pickedRun, () => '')
+      void act($, ['resume', root, runId])
+    },
+    toggleTask: id => { void update($, openTask, current => (current === id ? '' : id)) },
     refresh: () => { void refresh($, true) },
     toggleBand: () => { void update($, isBandHidden, v => !v) },
     open: () => { void $.ui.open({ id: PANE, title: TITLE }) },
@@ -273,7 +311,7 @@ export const register: Register = on => {
     live.pluginRoot = $.plugin.root
     live.isInteractive = e.isInteractive
     live.isLoggingChat = e.isInteractive && !(await $.env.get('HQ_RUN_ID'))
-    await $.command.register({ name: 'hq', description: 'Company HQ: open the company pane, or run / init / stop / status', argumentHint: '[run <request> | init [type] | stop | status]' })
+    await $.command.register({ name: 'hq', description: 'Company HQ: open the company pane, or run / init / stop / status', argumentHint: '[run <request> | init [type] | stop | resume | status]' })
     await refresh($)
     live.timer?.cancel?.()
     live.timer = null
@@ -345,6 +383,12 @@ export const register: Register = on => {
       return { text: active ? await act($, ['stop', root, active]) : 'No active run to stop.' }
     }
     if (sub === 'status') return { text: await runHq($, root, ['status', root]) }
+    if (sub === 'resume') {
+      await update($, pickedRun, () => '')
+      const text = await act($, ['resume', root, ...(rest[0] ? [rest[0]] : [])])
+      void $.ui.open({ id: PANE, title: TITLE })
+      return { text }
+    }
     return { text: USAGE }
   })
 
@@ -357,6 +401,7 @@ export const register: Register = on => {
       frame: await read($, frame),
       notice: await read($, notice),
       isBandHidden: await read($, isBandHidden),
+      openTask: await read($, openTask),
     }
     return paneView(ui, snap, state, String(e.props.placement), actionsFor($, snap?.root ?? live.cwd))
   })

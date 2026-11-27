@@ -3,7 +3,7 @@
  * snapshot: every press goes through `Actions`, so nothing here reaches `$`.
  */
 import type { ExecGroup, FeedItem, Hue, RunView, Snapshot, Tab, TaskRow } from '../types'
-import { ACTIVE_RUN, BUSY_TASK, PULSE, SPINNER, STAGES, blocks, clock, elapsed, runLook, taskLook } from './model'
+import { ACTIVE_RUN, BUSY_TASK, PULSE, SPINNER, STAGES, ago, blocks, clock, runLook, taskLook, ticking } from './model'
 
 /** The elements a surface resolves; each is used through JSX only. */
 export type Ui = { Box: any; Text: any; Button: any; Progress: any; Input: any }
@@ -14,12 +14,29 @@ export type Actions = {
   run: (request: string) => void
   hire: (type?: string) => void
   stop: (runId: string) => void
+  resume: (runId: string) => void
+  toggleTask: (taskId: string) => void
   refresh: () => void
   toggleBand: () => void
   open: () => void
 }
 
-export type PaneState = { tab: Tab; frame: number; notice: string; isBandHidden: boolean }
+export type PaneState = { tab: Tab; frame: number; notice: string; isBandHidden: boolean; openTask: string }
+
+const SCAN_WIDTH = 22
+
+/** An indeterminate bar that sweeps back and forth while the company is busy: ───━━●━━─── */
+function scanner(frame: number, width = SCAN_WIDTH): string {
+  const span = width - 3
+  const step = frame % (span * 2)
+  const at = step < span ? step : span * 2 - step
+  return `${'─'.repeat(at)}━●━${'─'.repeat(span - at)}`
+}
+
+/** Slot dots: ●● filled for each Claude process running on this machine, ○ for free ones. */
+function slotDots(used: number, max: number): string {
+  return `${'●'.repeat(Math.min(used, max))}${'○'.repeat(Math.max(0, max - used))}`
+}
 
 const TABS: readonly { id: Tab; label: string; hotkey: string }[] = [
   { id: 'overview', label: 'Overview', hotkey: '1' },
@@ -51,12 +68,14 @@ function Header(ui: Ui, snap: Snapshot, frame: number) {
   const { Box, Text } = ui
   const run = snap.run
   const look = run ? runLook(run.status) : runLook('idle')
+  const isRunning = isLive(run)
   const stats = [
     snap.working ? `${snap.working} agent${snap.working === 1 ? '' : 's'} working` : 'no agents working',
     run ? `${run.done}/${run.tasks.length} tasks approved` : `${snap.departments} departments`,
     run && run.cost ? `$${run.cost.toFixed(2)}` : '',
-    run ? elapsed(run.startedAt, run.finishedAt) : '',
+    run ? (isRunning ? `running ${ticking(run.startedAt)}` : (run.finishedAt ? `took ${ticking(run.startedAt, Date.parse(run.finishedAt))}` : '')) : '',
   ].filter(Boolean).join('  ·  ')
+  const slotHue: Hue = snap.slots.used >= snap.slots.max ? 'warning' : snap.slots.used ? 'success' : 'inactive'
   return (
     <Box borderStyle="round" borderColor="claude" paddingX={1} flexDirection="column">
       <Box justifyContent="space-between">
@@ -71,6 +90,49 @@ function Header(ui: Ui, snap: Snapshot, frame: number) {
         </Box>
       </Box>
       <Text dimColor wrap="truncate">{stats}</Text>
+      <Box gap={1}>
+        <Text dimColor>Claude slots</Text>
+        <Text color={slotHue}>{slotDots(snap.slots.used, snap.slots.max)}</Text>
+        <Text dimColor>{snap.slots.used}/{snap.slots.max} in use</Text>
+        {snap.updatedAt ? <Text dimColor>· updated {ago(snap.updatedAt)}</Text> : null}
+      </Box>
+    </Box>
+  )
+}
+
+/** What this run has going right now: each process with a live timer, or who holds the slots it waits for. */
+function Live(ui: Ui, snap: Snapshot, frame: number) {
+  const { Box, Text } = ui
+  const run = snap.run
+  if (!run || !isLive(run) || !snap.isLatest) return null
+  const others = snap.slots.holders.filter(holder => !holder.isThisRun)
+  const isQueued = run.status === 'queued' || run.live.every(p => p.isWaiting)
+  return (
+    <Box borderStyle="round" borderColor="permission" paddingX={1} flexDirection="column">
+      <Box gap={1}>
+        <Text color="permission" bold>{spin(frame)} Live</Text>
+        <Text color="claude">{scanner(frame)}</Text>
+      </Box>
+      {run.live.length === 0 ? <Text dimColor>Starting the next step…</Text> : null}
+      {run.live.map(p => (
+        <Box key={p.label} gap={1}>
+          <Text color={p.isWaiting ? 'warning' : 'success'}>{p.isWaiting ? '◌' : spin(frame + 3)}</Text>
+          <Text bold={!p.isWaiting} wrap="truncate">{p.label}</Text>
+          <Text dimColor>{p.isWaiting ? `waiting ${ticking(p.since)}${p.freeMB != null ? ` · ${p.freeMB} MB free` : ''}` : ticking(p.since)}</Text>
+        </Box>
+      ))}
+      {isQueued && others.length ? (
+        <Box flexDirection="column">
+          <Text color="warning">Slots taken by other work:</Text>
+          {others.map(holder => (
+            <Box key={`${holder.project}-${holder.label}-${holder.since}`} gap={1}>
+              <Text color="suggestion">{spin(frame + 5)}</Text>
+              <Text wrap="truncate">{holder.label}</Text>
+              <Text dimColor>{holder.project ? `· ${holder.project} ` : ''}· {ticking(holder.since)}</Text>
+            </Box>
+          ))}
+        </Box>
+      ) : null}
     </Box>
   )
 }
@@ -103,10 +165,13 @@ function Now(ui: Ui, run: RunView, frame: number) {
   const { Box, Text } = ui
   const hue: Hue = run.limitNote ? 'warning' : run.isStuck ? 'error' : isLive(run) ? 'suggestion' : 'success'
   const icon = run.limitNote ? '⏸' : isLive(run) ? spin(frame) : runLook(run.status).icon
+  const isPlanning = run.status === 'planning' || run.status === 'queued'
   return (
     <Box borderStyle="round" borderColor={hue} paddingX={1} flexDirection="column">
       <Box gap={1}>
         <Text color={hue} bold>{icon} Now</Text>
+        {isLive(run) ? <Text color={hue}>{scanner(frame)}</Text> : null}
+        {isPlanning && isLive(run) ? <Text dimColor>{ticking(run.startedAt)}</Text> : null}
       </Box>
       <Text>{run.now}</Text>
       {run.goal ? <Text dimColor wrap="truncate">Goal: {run.goal}</Text> : null}
@@ -125,9 +190,15 @@ function Progressbar(ui: Ui, run: RunView) {
 
 // ---------- tasks ----------
 
+/** A task approved with review issues still open reads as a warning, not a plain success. */
+function lookOf(t: TaskRow) {
+  const look = taskLook(t.status)
+  return t.status === 'approved' && t.isUnresolved ? { label: 'APPROVED ⚠', hue: 'warning' as Hue, icon: '⚠' } : look
+}
+
 function TaskLine(ui: Ui, t: TaskRow, frame: number) {
   const { Box, Text } = ui
-  const look = taskLook(t.status)
+  const look = lookOf(t)
   const icon = BUSY_TASK.has(t.status) && t.status !== 'queued' ? spin(frame) : look.icon
   return (
     <Box gap={1}>
@@ -138,9 +209,9 @@ function TaskLine(ui: Ui, t: TaskRow, frame: number) {
   )
 }
 
-function TaskCard(ui: Ui, t: TaskRow, frame: number) {
-  const { Box, Text } = ui
-  const look = taskLook(t.status)
+function TaskCard(ui: Ui, t: TaskRow, frame: number, isOpen: boolean, actions: Actions) {
+  const { Box, Text, Button } = ui
+  const look = lookOf(t)
   const meta = [t.department, t.id, t.round ? `revision ${t.round}` : '', t.dependsOn.length ? `after ${t.dependsOn.join(', ')}` : '']
     .filter(Boolean).join(' · ')
   const v = t.verdict
@@ -154,8 +225,21 @@ function TaskCard(ui: Ui, t: TaskRow, frame: number) {
       <Text dimColor wrap="truncate">{meta}</Text>
       {t.working.length ? <Text color="suggestion" wrap="truncate">{pulse(frame)} {t.working.join(', ')}</Text> : null}
       {t.reviewers.length ? <Text color="merged" dimColor wrap="truncate">⚖ {t.reviewers.join(', ')}</Text> : null}
-      {v ? <Text color={verdictHue} maxLines={2}>⚖ {v.decision}{v.score != null ? ` ${v.score}/10` : ''}: {v.summary}</Text> : null}
-      {t.error ? <Text color="error" maxLines={2}>✗ {t.error}</Text> : null}
+      {v ? <Text color={verdictHue} maxLines={isOpen ? 6 : 2}>⚖ {v.decision}{v.score != null ? ` ${v.score}/10` : ''}: {v.summary}</Text> : null}
+      {t.isUnresolved ? <Text color="warning">⚠ Approved after the last revision round; reviewers still had open issues.</Text> : null}
+      {t.error ? <Text color="error" maxLines={isOpen ? 6 : 2}>✗ {t.error}</Text> : null}
+      {isOpen ? (
+        <Box flexDirection="column" marginTop={1}>
+          {t.brief ? <Text bold>Brief</Text> : null}
+          {t.brief ? <Text maxLines={8}>{t.brief}</Text> : null}
+          {t.deliverable ? <Text dimColor maxLines={3}>Deliverable: {t.deliverable}</Text> : null}
+          {t.issues.length ? <Text color="warning" bold>Open issues</Text> : null}
+          {t.issues.map((i, n) => <Text color="warning" maxLines={3}>{n + 1}. {i}</Text>)}
+        </Box>
+      ) : null}
+      <Box>
+        <Button key={`task-${t.id}`} plain label={isOpen ? '▾ Hide details' : '▸ Details'} onPress={() => actions.toggleTask(t.id)} />
+      </Box>
     </Box>
   )
 }
@@ -265,6 +349,7 @@ function Overview(ui: Ui, snap: Snapshot, state: PaneState, actions: Actions) {
     <Box flexDirection="column" gap={1}>
       {Pipeline(ui, run, state.frame)}
       {Now(ui, run, state.frame)}
+      {Live(ui, snap, state.frame)}
       {Progressbar(ui, run)}
       {tasks.length ? (
         <Box flexDirection="column">
@@ -312,6 +397,7 @@ function Footer(ui: Ui, snap: Snapshot, state: PaneState, actions: Actions) {
       {state.notice ? <Text color="warning" maxLines={3}>{state.notice}</Text> : null}
       <Box gap={1} flexWrap="wrap">
         {run && isLive(run) && snap.isLatest ? <Button key="stop" label="Stop run" onPress={() => actions.stop(run.id)} /> : null}
+        {run && run.canResume && snap.activeRuns === 0 ? <Button key="resume" label="▶ Resume run" variant="primary" onPress={() => actions.resume(run.id)} /> : null}
         {!snap.isLatest ? <Button key="latest" label="Back to latest run" variant="primary" onPress={() => actions.pick('')} /> : null}
         <Button key="refresh" label="Refresh" hotkey="r" onPress={actions.refresh} />
         <Button key="band" label={state.isBandHidden ? 'Show status row' : 'Hide status row'} onPress={actions.toggleBand} />
@@ -372,7 +458,7 @@ export function paneView(ui: Ui, snap: Snapshot | null, state: PaneState, placem
   const body =
     state.tab === 'team' ? Team(ui, snap.org, state.frame)
       : state.tab === 'tasks' ? (run && run.tasks.length
-        ? <Box flexDirection="column">{busyFirst(run.tasks).map(t => TaskCard(ui, t, state.frame))}</Box>
+        ? <Box flexDirection="column">{busyFirst(run.tasks).map(t => TaskCard(ui, t, state.frame, state.openTask === t.id, actions))}</Box>
         : <Text dimColor>No tasks yet. Ask the company for something on the Overview tab.</Text>)
         : state.tab === 'activity' ? (snap.feed.length
           ? <Box flexDirection="column">{snap.feed.map(f => FeedLine(ui, f))}</Box>

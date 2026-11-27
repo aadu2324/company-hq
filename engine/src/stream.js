@@ -57,3 +57,18 @@ export function extractJson(text) {
 export function isAuthFailure(text) {
   return /failed to authenticate|oauth session expired|please run \/login|not logged in/i.test(text || '');
 }
+
+// Claude's own wording when a plan's usage limit stops a session, e.g.
+// "You've hit your 5-hour limit · resets 4:20pm (America/Chicago)". Only ever tested against the
+// text of a FAILED result, so a task that is about rate limiting never trips it.
+const USAGE_LIMIT = /you['’]?ve hit your [^.\n]*limit|usage limit (reached|exceeded)|limit[^.\n]*\bresets?\b/i;
+const RESETS = /\bresets?\s+(?:at\s+)?([^·\n]+?)\s*$/im;
+
+export function isUsageLimit(text) {
+  return USAGE_LIMIT.test(text || '');
+}
+
+/** "4:20pm (America/Chicago)" from a usage-limit message, or '' when it does not say. */
+export function limitResetText(text) {
+  return (RESETS.exec(String(text || '').replace(/Â/g, ''))?.[1] || '').trim();
+}

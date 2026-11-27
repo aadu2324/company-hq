@@ -1,6 +1,11 @@
 import fs from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
-import { parseStreamLine, extractJson, isAuthFailure } from './stream.js';
+import { parseStreamLine, extractJson, isAuthFailure, isUsageLimit, limitResetText } from './stream.js';
+
+/** { limited, resets } for the text of a failed process, or nothing when it was not the usage limit. */
+function limitOf(text) {
+  return isUsageLimit(text) ? { limited: true, resets: limitResetText(text) } : {};
+}
 
 export const AUTH_HELP = 'Claude CLI is not logged in. Open a terminal, run `claude`, then type /login.';
 const DEFAULT_TIMEOUT_MS = 90 * 60 * 1000;
@@ -14,6 +19,10 @@ export function buildArgs(o) {
   if (o.schema) args.push('--json-schema', JSON.stringify(o.schema));
   if (o.resume) args.push('--resume', o.resume);
   if (o.disallowedTools?.length) args.push('--disallowedTools', o.disallowedTools.join(','));
+  if (o.effort) args.push('--effort', o.effort);
+  // Isolated: no MCP servers and no skills in the process; a settings file can turn off hooks.
+  if (o.isolate) args.push('--strict-mcp-config', '--disable-slash-commands');
+  if (o.settingsFile) args.push('--settings', o.settingsFile);
   return args;
 }
 
@@ -104,19 +113,22 @@ export function runClaude(o) {
       log?.end();
       if (killedFor) { resolve({ ok: false, sessionId, error: `claude ${killedFor}`, aborted: killedFor === 'aborted' }); return; }
       if (!final) {
-        resolve({ ok: false, sessionId, error: `claude exited (${code}) without a result. ${stderr.trim()}`.trim() });
+        const error = `claude exited (${code}) without a result. ${stderr.trim()}`.trim();
+        resolve({ ok: false, sessionId, error, ...limitOf(stderr) });
         return;
       }
       const auth = isAuthFailure(final.result);
       const structured = final.structured ?? (o.schema ? extractJson(final.result) : null);
+      const error = auth ? AUTH_HELP : (final.ok ? null : final.result || stderr.trim());
       resolve({
         ok: final.ok && !auth,
         sessionId: final.sessionId || sessionId,
         result: final.result,
         structured,
         cost: final.cost,
-        error: auth ? AUTH_HELP : (final.ok ? null : final.result || stderr.trim()),
+        error,
         auth,
+        ...(final.ok || auth ? {} : limitOf(`${final.result}\n${stderr}`)),
       });
     });
     child.stdin.on('error', () => { /* process exited early; close handler reports it */ });

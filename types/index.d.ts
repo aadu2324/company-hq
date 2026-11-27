@@ -35,7 +35,19 @@ export type TaskRow = {
   dependsOn: string[]
   verdict: Verdict | null
   error: string
+  brief: string
+  deliverable: string
+  /** The review's open issues, most severe first. */
+  issues: string[]
+  /** Approved after the last revision round while reviewers still had issues. */
+  isUnresolved: boolean
 }
+
+/** A Claude process this run has going right now, or one waiting for a slot. */
+export type LiveProc = { label: string; since: string; isWaiting: boolean; freeMB: number | null }
+
+/** Who holds a Claude process slot on this machine (any project). */
+export type SlotHolder = { label: string; project: string; since: string; isThisRun: boolean }
 
 export type RunView = {
   id: string
@@ -58,6 +70,11 @@ export type RunView = {
   finishedAt: string
   done: number
   failed: number
+  /** Processes of this run running or waiting right now. */
+  live: LiveProc[]
+  /** Paused, failed, stopped or partly failed: `hq resume` can carry it on. */
+  canResume: boolean
+  resumes: number
 }
 
 export type RunBrief = { id: string; status: string; prompt: string; startedAt: string }
@@ -79,6 +96,10 @@ export type Snapshot = {
   feed: FeedItem[]
   activeRuns: number
   working: number
+  /** Claude process slots across every HQ run on this machine. */
+  slots: { used: number; max: number; holders: SlotHolder[] }
+  /** When the run last wrote anything (ISO), so the pane can say how fresh it is. */
+  updatedAt: string
 }
 
 export type Tab = 'overview' | 'team' | 'tasks' | 'activity'
@@ -94,6 +115,8 @@ declare module 'claude-code' {
       pickedRun: string
       /** Animation frame, ticking only while a run is active. */
       frame: number
+      /** The task whose card is opened for details on the Tasks tab, or ''. */
+      openTask: string
     }
   }
 }

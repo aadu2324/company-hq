@@ -29,11 +29,45 @@ const DEFAULTS = Object.freeze({
   minFreeMemMB: 700,
   starvationGraceSec: 30,
   pollMs: 2000,
-  models: { ceo: 'opus', board: 'opus', orgDesigner: 'opus', manager: 'sonnet', reviewer: 'sonnet' },
   permissionMode: 'acceptEdits',
   claudePath: null,
   /** GPU memory in GB, if any; the engine cannot detect it. Used in the workers' brief. */
   vramGB: null,
+  profile: 'lean',
+});
+
+/**
+ * How much usage a run may spend. Measured on real runs: review panels of 4–5 subagents were ~64% of
+ * the cost (each finished reviewer wakes the panel to re-read everything), and every background
+ * process carried ~77k tokens of hooks, MCP servers and skills it never used.
+ *
+ * lean (default): one reviewer pass covering every perspective, at most 2 perspectives and 1 revision
+ *   round per task, Sonnet everywhere at medium effort, and background processes without hooks,
+ *   MCP servers or skills (agents and CLAUDE.md are kept).
+ * thorough: the full panel of reviewer subagents, 2 revision rounds, Opus for the CEO and Board,
+ *   and the owner's full Claude Code setup in every process.
+ */
+export const PROFILES = Object.freeze({
+  lean: {
+    models: { ceo: 'sonnet', board: 'sonnet', orgDesigner: 'sonnet', manager: 'sonnet', reviewer: 'sonnet' },
+    effort: { ceo: 'medium', board: 'medium', orgDesigner: 'medium', manager: 'medium', reviewer: 'medium' },
+    isolate: true,
+    reviewMode: 'single',
+    reviewRounds: 1,
+    maxReviewers: 2,
+    maxWorkers: 2,
+    maxTasks: 4,
+  },
+  thorough: {
+    models: { ceo: 'opus', board: 'opus', orgDesigner: 'opus', manager: 'sonnet', reviewer: 'sonnet' },
+    effort: {},
+    isolate: false,
+    reviewMode: 'panel',
+    reviewRounds: 2,
+    maxReviewers: 5,
+    maxWorkers: 4,
+    maxTasks: 8,
+  },
 });
 
 export function loadConfig() {
@@ -42,7 +76,41 @@ export function loadConfig() {
   let env = {};
   try { env = JSON.parse(process.env.HQ_CONFIG_JSON || '{}'); } catch { env = {}; }
   const user = { ...file, ...env };
-  return { ...DEFAULTS, ...user, models: { ...DEFAULTS.models, ...(file.models || {}), ...(env.models || {}) } };
+  const profileName = PROFILES[user.profile] ? user.profile : DEFAULTS.profile;
+  const profile = PROFILES[profileName];
+  return {
+    ...DEFAULTS,
+    ...profile,
+    ...user,
+    profile: profileName,
+    models: { ...profile.models, ...(file.models || {}), ...(env.models || {}) },
+    effort: { ...profile.effort, ...(file.effort || {}), ...(env.effort || {}) },
+  };
+}
+
+/** A settings file that turns off the owner's hooks in background processes (agents and plugins stay). */
+export function isolateSettingsFile() {
+  const file = path.join(STATE_DIR, 'isolate-settings.json');
+  try {
+    if (!fs.existsSync(file)) {
+      fs.mkdirSync(STATE_DIR, { recursive: true });
+      fs.writeFileSync(file, JSON.stringify({ disableAllHooks: true }));
+    }
+    return file;
+  } catch {
+    return null;
+  }
+}
+
+/** The extra process options a role runs with under the active profile. */
+export function processOptions(config, role) {
+  const settingsFile = config.isolate ? isolateSettingsFile() : null;
+  return {
+    model: config.models?.[role],
+    effort: config.effort?.[role] || undefined,
+    isolate: Boolean(config.isolate),
+    settingsFile: settingsFile || undefined,
+  };
 }
 
 /** The machine the company runs on, in one line for prompts: detected RAM plus configured VRAM. */

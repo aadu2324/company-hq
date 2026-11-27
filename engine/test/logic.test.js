@@ -61,8 +61,23 @@ test('validatePlan merges department reviewers, drops bad deps and unknown revie
   ] };
   const r = validatePlan(plan, org, catalog);
   assert.equal(r.ok, true, r.errors.join(';'));
-  assert.deepEqual(r.tasks[0].reviewers, ['code-reviewer', 'security-reviewer', 'legal']);
+  assert.deepEqual(r.tasks[0].reviewers, ['legal', 'code-reviewer', 'security-reviewer']);
   assert.deepEqual(r.tasks[1].dependsOn, ['T1']);
+});
+
+test('the lean caps keep the CEO-picked reviewers first and limit tasks', () => {
+  const plan = { tasks: [
+    { id: 'T1', department: 'engineering', title: 'api', brief: 'b', reviewers: ['legal'] },
+    { id: 'T2', department: 'engineering', title: 'tests', brief: 'b' },
+    { id: 'T3', department: 'outreach', title: 'emails', brief: 'b' },
+  ] };
+  const lean = validatePlan(plan, org, catalog, { maxReviewers: 2, maxTasks: 2 });
+  assert.equal(lean.ok, true, lean.errors.join(';'));
+  assert.deepEqual(lean.tasks.map((t) => t.id), ['T1', 'T2']);
+  assert.deepEqual(lean.tasks[0].reviewers, ['legal', 'code-reviewer']);
+  const full = validatePlan(plan, org, catalog);
+  assert.equal(full.tasks.length, 3);
+  assert.equal(full.tasks[0].reviewers.length, 3);
 });
 
 test('validatePlan rejects unknown departments and cycles', () => {

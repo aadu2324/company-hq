@@ -10,11 +10,11 @@ off, while you watch the whole org chart work live beside the chat.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-d97757.svg)](LICENSE)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-1c1917.svg)](https://docs.claude.com/en/docs/claude-code)
-[![Version](https://img.shields.io/badge/version-0.2.0-78c88c.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.0-78c88c.svg)](CHANGELOG.md)
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-78c88c.svg)](https://nodejs.org)
 [![Agents](https://img.shields.io/badge/role%20agents-19-d97757.svg)](agents)
 
-[Install](#install) · [What you see](#what-you-see) · [Quick start](#quick-start) · [How a run works](#how-a-run-works) · [Teams](#teams) · [Configuration](#configuration) · [FAQ](#faq)
+[Install](#install) · [What you see](#what-you-see) · [Usage and speed](#usage-and-speed) · [Quick start](#quick-start) · [How a run works](#how-a-run-works) · [Teams](#teams) · [Configuration](#configuration) · [FAQ](#faq)
 
 </div>
 
@@ -40,7 +40,10 @@ The HQ pane sits beside the chat (or as a corner widget) and tells you, in plain
 | **Where the run is** | A five-stage pipeline (Plan → Build → Review → Board → Report) that lights up as the run moves. |
 | **Now** | One sentence on what is happening: *“Engineering is building ‘Public API’ with 2 agents; Legal is checking ‘Launch emails’.”* If Claude's usage limit stops the work, it says so, with the reset time. |
 | **Tabs** | **Overview** · **Team** (department cards that light up with live workers) · **Tasks** (a card per task with status, round, reviewers and verdict) · **Activity** (every event, colour-coded). Keys `1`–`4` switch tabs. |
+| **Live** | Every Claude process the run has going, each with a ticking timer. A queued run says exactly what it is waiting for: which run holds the slots (in any project) or how much memory is free. Slot dots `●●○` and "updated 3s ago" show it is alive. |
 | **Ask the company** | Type a request straight into the pane and press **Run**. |
+| **Resume** | A run stopped by Claude's usage limit pauses instead of failing. **▶ Resume run** carries on later without redoing approved work. |
+| **Task details** | Open any task card for its brief, deliverable and the reviewer's open issues. Work approved with issues still open is flagged `APPROVED ⚠`. |
 | **Status row** | Above the prompt: `◆ HQ  WORKING  ▰▰▰▱▱ 2/5  Engineering is building “Public API”…  [Open] [Hide]` |
 
 ## Features
@@ -55,6 +58,11 @@ The HQ pane sits beside the chat (or as a corner widget) and tells you, in plain
   `.company/runs/<id>/report.md`.
 - **Live org chart.** A side pane, a corner widget and a status row above the prompt, in the terminal and the
   desktop app. Delegation from your ordinary chats shows up too.
+- **Easy on your usage limit.** The default *lean* profile was tuned on real runs: one-pass reviews instead of
+  reviewer swarms, at most 4 tasks per run, Sonnet throughout, and background processes without hooks, MCP
+  servers or skills. See [Usage and speed](#usage-and-speed).
+- **Survives the usage limit.** Runs pause instead of failing and resume where they stopped.
+- **Obsidian notes.** Optionally, every run becomes a linked note in your vault.
 - **Memory-aware.** At most 2 Claude processes at once across all projects (configurable), and a launch waits
   while free RAM is low.
 - **Drafts only.** The company never sends email, posts, publishes, deploys, purchases or commits on its own.
@@ -115,6 +123,7 @@ dispatching the same departments and reviewers as subagents.
 | `/hq init [startup\|research\|software]` | Hire a team tailored to this project. The type is detected if you leave it out |
 | `/hq status` | Recent runs, with process slots and free memory |
 | `/hq stop` | Stop the active run and all of its Claude processes |
+| `/hq resume` | Carry on a paused, stopped or partly failed run. Approved work and the plan are kept |
 
 ## How a run works
 
@@ -132,12 +141,32 @@ flowchart LR
   B --> REP([report.md])
 ```
 
-1. **CEO** (read-only) turns the request into at most 8 tasks, one department each, with real dependencies
-   and a review panel per task. Anything ambiguous becomes a question in the plan.
-2. **Departments** run in dependency order, two at a time by default. Each task is one manager process that
-   delegates to its workers as subagents.
-3. **Review panel** for each task approves it or sends it back with specific fixes, up to two rounds.
+1. **CEO** (read-only) turns the request into a few tasks (at most 4 in the lean profile, 8 in thorough), one
+   department each, with real dependencies and reviewers per task. Anything ambiguous becomes a question.
+2. **Departments** run in dependency order, two at a time by default. Each task is one manager process that does
+   small work itself and delegates the rest to its workers as subagents.
+3. **Review** for each task approves it or sends it back with specific fixes (one round in lean, two in thorough).
 4. **Board** signs off on the whole run and writes the report.
+
+If Claude's usage limit is hit at any point, the run **pauses**: approved tasks stay approved, interrupted ones keep
+their conversation, and `/hq resume` carries on without re-planning.
+
+## Usage and speed
+
+HQ runs on your Claude plan, so it was tuned against real runs. Measured on two runs of a 7- and a 5-task request
+before tuning, the review panels (4–5 reviewer subagents per task, each finished reviewer waking the panel to
+re-read everything) were **64% of the spend**, managers 27% and planning 10%. Every background process also
+carried **~77k tokens** of hooks, MCP servers and skills it never used.
+
+| | **lean** (default) | **thorough** |
+|---|---|---|
+| Review | one reviewer pass covering up to 2 perspectives, 1 revision round | a panel of reviewer subagents, 2 rounds |
+| Tasks per run | at most 4 | at most 8 |
+| Models | Sonnet everywhere, medium effort | Opus for CEO, Board and org designer |
+| Background processes | no hooks, MCP servers or skills (agents and CLAUDE.md kept) | your full Claude Code setup |
+| Measured per call | ~64k tokens of context, about 2× faster | ~153k tokens |
+
+Switch with `"profile": "thorough"` in `~/.claude/company/config.json`. Any `models` you set there still win.
 
 Everything lives in plain files inside the project:
 
@@ -178,7 +207,10 @@ Optional. Create `~/.claude/company/config.json` with any of these keys:
 | `maxProcesses` | `2` | Claude processes allowed at once, across all projects |
 | `minFreeMemMB` | `700` | A launch waits while free RAM is below this |
 | `starvationGraceSec` | `30` | If nothing is running, launch anyway after this long |
-| `models` | `ceo`/`board`/`orgDesigner`: `opus`, `manager`/`reviewer`: `sonnet` | Model per role |
+| `profile` | `lean` | `lean` or `thorough`, see [Usage and speed](#usage-and-speed) |
+| `models` | from the profile | Model per role: `ceo`, `board`, `orgDesigner`, `manager`, `reviewer` |
+| `effort` | from the profile | Effort per role (`low`, `medium`, `high`) |
+| `obsidian` | off | `{ "vault": "<vault folder>", "folder": "HQ" }` writes a note per run into your vault |
 | `permissionMode` | `acceptEdits` | Permission mode for background processes |
 | `processTimeoutMin` | `90` | A process running longer than this is stopped |
 | `vramGB` | none | GPU memory, so workers size experiments to fit. RAM is detected |
@@ -198,8 +230,20 @@ template, copy it into `~/.claude/company/templates/`.
   not write before your first run in that project. Custom roles in it always run as `general-purpose`, with their
   text length-limited.
 - **Cost.** Watching is free: the pane reads local files and makes no model calls. Runs use your Claude plan
-  like any other session, with Opus for the CEO, org designer and Board by default. Each run's cost is shown
-  in the pane.
+  like any other session; each run's cost is shown in the pane.
+
+## Obsidian
+
+Add your vault to `~/.claude/company/config.json`:
+
+```json
+{ "obsidian": { "vault": "/path/to/Your Vault", "folder": "HQ" } }
+```
+
+Every run then writes `HQ/<project>/<date> <request>.md` (status, plan, tasks, review verdicts, Board decision,
+links to the report and deliverables) and keeps `HQ/<project>/<project> HQ.md` and `HQ/HQ.md` up to date. Notes
+link to `[[<project>]]`, so runs sit next to your own project note in the graph. `hq obsidian` exports past runs.
+HQ never creates the vault and never writes outside it.
 
 ## FAQ
 

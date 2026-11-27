@@ -1,5 +1,6 @@
 import fs from 'node:fs';
-import { loadConfig, loadCatalog, resolveClaude } from './config.js';
+import path from 'node:path';
+import { loadConfig, loadCatalog, resolveClaude, processOptions } from './config.js';
 import { loadOrg } from './org.js';
 import { PLAN_SCHEMA, VERDICT_SCHEMA, BOARD_SCHEMA, validatePlan, readyTasks, blockedTasks, isTerminal } from './plan.js';
 import { acquireSlot, releaseSlot } from './slots.js';
@@ -7,6 +8,7 @@ import { runClaude } from './claude.js';
 import { isAgentTool } from './stream.js';
 import * as P from './prompts.js';
 import { openRun, updateTask } from './runstore.js';
+import { exportRunToObsidian } from './obsidian.js';
 
 const READ_ONLY = ['Edit', 'Write', 'NotebookEdit', 'MultiEdit'];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -14,6 +16,18 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 class StopError extends Error {
   constructor() { super('stopped by owner'); this.code = 'stopped'; }
 }
+
+/** Claude's usage limit stopped a process: the run pauses with its work kept, instead of failing. */
+class LimitError extends Error {
+  constructor(resets) {
+    super(`Paused by the Claude usage limit${resets ? `, which resets ${resets}` : ''}.`);
+    this.code = 'limit';
+    this.resets = resets || '';
+  }
+}
+
+/** Codes that end the whole run (every sibling task is cancelled) rather than one task. */
+const RUN_ENDING = new Set(['stopped', 'auth', 'limit']);
 
 /** Create the context object shared by every phase of one run. */
 function makeContext(projectPath, runId) {
@@ -31,12 +45,13 @@ function stopped(ctx) {
 }
 
 /** Run one Claude process inside a global RAM-aware slot, logging worker delegation. */
-async function claudeInSlot(ctx, { label, taskId, ...opts }) {
+async function claudeInSlot(ctx, { label, taskId, isManager = false, ...opts }) {
   const { config, store } = ctx;
   let waited = false;
   const slot = await acquireSlot({
     maxProcesses: config.maxProcesses, minFreeMemMB: config.minFreeMemMB,
     starvationGraceSec: config.starvationGraceSec, pollMs: config.pollMs, label,
+    meta: { project: String(ctx.org.project?.name || path.basename(ctx.projectPath)), runId: ctx.runId, taskId: taskId || null },
     isStopped: () => stopped(ctx),
     onWait: ({ live, freeMB }) => {
       if (!waited) store.event('slot.wait', { label, taskId, live, freeMB });
@@ -68,6 +83,11 @@ async function claudeInSlot(ctx, { label, taskId, ...opts }) {
     store.update((s) => ({ ...s, cost: (s.cost || 0) + (res.cost || 0) }));
     store.event('process.end', { label, taskId, ok: res.ok, cost: res.cost, error: res.error || undefined });
     if (res.auth) throw Object.assign(new Error(res.error), { code: 'auth' });
+    if (res.limited) {
+      // Keep the interrupted manager's conversation so `hq resume` continues it (never a reviewer's).
+      if (isManager && taskId && res.sessionId) updateTask(store, taskId, { sessionId: res.sessionId });
+      throw new LimitError(res.resets);
+    }
     if (res.aborted) throw new StopError();
     return res;
   } finally {
@@ -79,11 +99,11 @@ async function planPhase(ctx, request) {
   const { store, org, catalog, config } = ctx;
   store.update({ status: 'planning' });
   const res = await claudeInSlot(ctx, {
-    label: 'CEO · plan', model: config.models.ceo, prompt: P.ceoPrompt({ org, catalog, request }),
+    label: 'CEO · plan', ...processOptions(config, 'ceo'), prompt: P.ceoPrompt({ org, catalog, request, maxTasks: config.maxTasks }),
     schema: PLAN_SCHEMA, disallowedTools: READ_ONLY, permissionMode: 'default',
   });
   if (!res.ok || !res.structured) throw new Error(`CEO planning failed: ${res.error || 'no plan returned'}`);
-  const { ok, errors, tasks } = validatePlan(res.structured, org, catalog);
+  const { ok, errors, tasks } = validatePlan(res.structured, org, catalog, { maxReviewers: config.maxReviewers, maxTasks: config.maxTasks });
   if (!ok) throw new Error(`CEO plan invalid: ${errors.join('; ')}`);
   const plan = { goal: res.structured.goal, doneMeans: res.structured.doneMeans || '', questions: res.structured.questions || [] };
   store.update({
@@ -96,10 +116,12 @@ async function planPhase(ctx, request) {
 async function review(ctx, task) {
   const { config, catalog, store } = ctx;
   const res = await claudeInSlot(ctx, {
-    label: `Review · ${task.id}`, taskId: task.id, model: config.models.reviewer,
+    label: `Review · ${task.id}`, taskId: task.id, ...processOptions(config, 'reviewer'),
     prompt: P.reviewTask({ task, deliverablePath: task.deliverablePath }),
-    systemPromptFile: store.promptFile(`review-${task.id}`, P.reviewSystem({ catalog, task })),
-    schema: VERDICT_SCHEMA, disallowedTools: READ_ONLY, permissionMode: 'default',
+    systemPromptFile: store.promptFile(`review-${task.id}`, P.reviewSystem({ catalog, task, mode: config.reviewMode })),
+    schema: VERDICT_SCHEMA, permissionMode: 'default',
+    // A single-pass reviewer reads the work once itself: no reviewer subagents waking it up again and again.
+    disallowedTools: config.reviewMode === 'single' ? [...READ_ONLY, 'Agent', 'Task'] : READ_ONLY,
   });
   if (!res.ok || !res.structured?.verdict) return { verdict: 'revise', summary: `Review did not complete: ${res.error || 'no verdict'}`, issues: [] };
   return res.structured;
@@ -109,16 +131,17 @@ async function review(ctx, task) {
 async function runTask(ctx, task) {
   const { org, catalog, config, store } = ctx;
   const dept = org.departments.find((d) => d.id === task.department);
-  const rounds = org.policies?.reviewRounds ?? 2;
+  const rounds = Math.min(org.policies?.reviewRounds ?? 2, config.reviewRounds ?? 2);
   const depFiles = task.dependsOn.map((d) => store.deliverable(d));
-  const systemPromptFile = store.promptFile(`manager-${task.id}`, P.managerSystem({ org, catalog, dept }));
-  let sessionId = null;
+  const systemPromptFile = store.promptFile(`manager-${task.id}`, P.managerSystem({ org, catalog, dept, maxWorkers: config.maxWorkers }));
+  // A resumed task picks its manager's conversation back up instead of starting over.
+  let sessionId = task.sessionId || null;
   let feedback = null;
   for (let round = 0; round <= rounds; round += 1) {
     if (stopped(ctx)) throw new StopError();
     updateTask(store, task.id, { status: round ? 'revising' : 'running', round });
     const res = await claudeInSlot(ctx, {
-      label: `${dept.name} · ${task.id}${round ? ` r${round}` : ''}`, taskId: task.id, model: config.models.manager,
+      label: `${dept.name} · ${task.id}${round ? ` r${round}` : ''}`, taskId: task.id, isManager: true, ...processOptions(config, 'manager'),
       prompt: P.managerTask({ goal: store.state.plan.goal, task, deliverablePath: task.deliverablePath, dependencyFiles: depFiles, feedback }),
       systemPromptFile, resume: sessionId, permissionMode: config.permissionMode,
     });
@@ -166,7 +189,7 @@ async function executePhase(ctx) {
       updateTask(store, t.id, { status: 'queued' });
       const p = runTask(ctx, t)
         .catch((err) => {
-          if (err.code === 'stopped' || err.code === 'auth') throw err;
+          if (RUN_ENDING.has(err.code)) throw err;
           updateTask(store, t.id, { status: 'failed', error: err.message });
         })
         .finally(() => running.delete(t.id));
@@ -181,7 +204,7 @@ async function executePhase(ctx) {
     try {
       await Promise.race([...running.values()]);
     } catch (err) {
-      // Fatal (stop or auth): kill sibling processes and wait for them before the final state write.
+      // Run-ending (stop, auth, usage limit): kill sibling processes and wait for them before the final state write.
       ctx.abort.abort();
       await Promise.allSettled([...running.values()]);
       throw err;
@@ -193,10 +216,10 @@ async function executePhase(ctx) {
 async function boardPhase(ctx) {
   const { store, org, config } = ctx;
   store.update({ status: 'board' });
-  const reportPath = `${store.dir}\\report.md`;
+  const reportPath = path.join(store.dir, 'report.md');
   const res = await claudeInSlot(ctx, {
-    label: 'Board · sign-off', model: config.models.board,
-    prompt: P.boardPrompt({ org, state: store.state, reportPath }),
+    label: 'Board · sign-off', ...processOptions(config, 'board'),
+    prompt: P.boardPrompt({ org, state: store.state, reportPath, isLean: config.profile === 'lean' }),
     schema: BOARD_SCHEMA, disallowedTools: READ_ONLY, permissionMode: 'default',
   });
   const board = res.structured || { decision: 'reject', summary: `Board did not convene: ${res.error || 'no decision'}` };
@@ -225,15 +248,39 @@ Cost: $${(state.cost || 0).toFixed(2)}
 `;
 }
 
+/** Whatever happens to a run, its note in the owner's Obsidian vault (if configured) is brought up to date. */
+function exportNote(projectPath, store) {
+  try {
+    exportRunToObsidian(projectPath, store.reload() ?? store.state);
+  } catch (err) {
+    store.event('obsidian.failed', { error: err.message });
+  }
+}
+
 export async function runEngine(projectPath, runId) {
   const store = openRun(projectPath, runId);
   const fail = (err) => {
     const status = err.code === 'stopped' ? 'stopped' : 'failed';
+    // `hq stop` already ended the run and logged it; the engine's own unwinding must not log it again.
+    if (status === 'stopped' && store.reload()?.status === 'stopped') return;
     store.update((s) => ({
       ...s, status, pid: null, error: err.message, finishedAt: new Date().toISOString(),
       tasks: (s.tasks || []).map((t) => (isTerminal(t.status) ? t : { ...t, status: 'stopped' })),
     }));
     store.event('run.end', { status, error: err.message });
+    exportNote(projectPath, store);
+  };
+  // The usage limit pauses the run: finished tasks stay approved, interrupted ones go back to
+  // pending with their manager session kept, and `hq resume` carries on from there.
+  const pause = (err) => {
+    store.update((s) => ({
+      ...s, status: 'paused', pid: null, error: err.message, resets: err.resets, pausedAt: new Date().toISOString(),
+      tasks: (s.tasks || []).map((t) => (isTerminal(t.status) ? t : {
+        ...t, status: 'pending', workers: (t.workers || []).map((w) => (w.status === 'working' ? { ...w, status: 'interrupted' } : w)),
+      })),
+    }));
+    store.event('run.paused', { reason: 'usage-limit', resets: err.resets });
+    exportNote(projectPath, store);
   };
   // Last line of defence: never leave a run stuck "executing" after a crash.
   process.on('uncaughtException', (err) => { fail(err); process.exit(1); });
@@ -247,17 +294,20 @@ export async function runEngine(projectPath, runId) {
   }
   const { org } = ctx;
   ctx.store = store;
-  store.update({ pid: process.pid, startedAt: new Date().toISOString() });
-  store.event('run.start', { prompt: store.state.prompt });
+  const isResume = Boolean(store.state.plan && store.state.tasks?.length);
+  store.update((s) => ({ ...s, pid: process.pid, startedAt: s.startedAt || new Date().toISOString() }));
+  store.event(isResume ? 'run.resumed' : 'run.start', { prompt: store.state.prompt });
   try {
-    await planPhase(ctx, store.state.prompt);
+    if (!isResume) await planPhase(ctx, store.state.prompt);
     await executePhase(ctx);
     if (org.policies?.boardSignoff !== false) await boardPhase(ctx);
     const failed = store.state.tasks.some((t) => ['failed', 'blocked'].includes(t.status));
     store.update({ status: failed ? 'done_with_failures' : 'done', pid: null, finishedAt: new Date().toISOString() });
     store.event('run.end', { status: store.state.status });
+    exportNote(projectPath, store);
   } catch (err) {
     ctx.abort.abort();
-    fail(err);
+    if (err.code === 'limit') pause(err);
+    else fail(err);
   }
 }

@@ -52,7 +52,7 @@ export function freeMemMB() {
 export async function acquireSlot(opts) {
   const {
     maxProcesses, minFreeMemMB, starvationGraceSec = 30, pollMs = 2000,
-    label = '', onWait, isStopped, dir = SLOTS_DIR, memFn = freeMemMB,
+    label = '', meta = {}, onWait, isStopped, dir = SLOTS_DIR, memFn = freeMemMB,
   } = opts;
   const start = Date.now();
   for (;;) {
@@ -63,7 +63,8 @@ export async function acquireSlot(opts) {
     if (live.length < maxProcesses && (free >= minFreeMemMB || starving)) {
       const file = path.join(dir, `${process.pid}-${randomUUID()}`);
       try {
-        fs.writeFileSync(file, JSON.stringify({ pid: process.pid, label, ts: Date.now() }));
+        // meta (project, run, task) lets the HQ pane say what holds each slot while another run waits.
+        fs.writeFileSync(file, JSON.stringify({ ...meta, pid: process.pid, label, ts: Date.now() }));
         // Two engines can pass the check together; order by (ts, name) and the later one backs off.
         const rank = liveSlots(dir).map((s) => ({ ...s, ts: slotTs(s.file) }))
           .sort((a, b) => a.ts - b.ts || a.name.localeCompare(b.name));

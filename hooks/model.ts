@@ -2,11 +2,13 @@
  * Pure functions from the company's files to what the pane draws. Nothing here touches `$`,
  * so every rule (stages, narration, colours, dedupe) is testable on plain objects.
  */
-import type { DeptCard, ExecGroup, FeedItem, Hue, RunBrief, RunView, Stage, TaskRow, Verdict } from '../types'
+import type { DeptCard, ExecGroup, FeedItem, Hue, LiveProc, RunBrief, RunView, SlotHolder, Stage, TaskRow, Verdict } from '../types'
 
 export type Json = Record<string, any>
 
 export const ACTIVE_RUN = new Set(['queued', 'planning', 'executing', 'board'])
+/** Runs `hq resume` can carry on. */
+export const RESUMABLE = new Set(['paused', 'failed', 'stopped', 'done_with_failures'])
 export const BUSY_TASK = new Set(['queued', 'running', 'working', 'revising', 'review'])
 export const STAGES: readonly { id: Stage; label: string }[] = [
   { id: 'plan', label: 'Plan' },
@@ -24,6 +26,7 @@ export const RUN_LOOK: Record<string, Look> = {
   planning: { label: 'PLANNING', hue: 'planMode', icon: '◆' },
   executing: { label: 'WORKING', hue: 'suggestion', icon: '▶' },
   board: { label: 'BOARD REVIEW', hue: 'merged', icon: '⚖' },
+  paused: { label: 'PAUSED', hue: 'warning', icon: '⏸' },
   done: { label: 'DONE', hue: 'success', icon: '✓' },
   done_with_failures: { label: 'DONE WITH ISSUES', hue: 'warning', icon: '!' },
   failed: { label: 'FAILED', hue: 'error', icon: '✗' },
@@ -158,12 +161,40 @@ function stageOf(status: string, tasks: TaskRow[]): Stage {
 const quote = (s: string, max = 48) => `“${s.length > max ? `${s.slice(0, max - 1)}…` : s}”`
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 
+/**
+ * What this run's processes are doing from its events: each started process stays live until it
+ * ends, and a slot wait stays open until that label's process starts.
+ */
+export function liveProcs(events: Json[]): LiveProc[] {
+  const live = new Map<string, LiveProc>()
+  for (const ev of events) {
+    const label = String(ev.label ?? '')
+    if (!label) continue
+    if (ev.type === 'slot.wait') live.set(label, { label, since: String(ev.ts), isWaiting: true, freeMB: Number.isFinite(ev.freeMB) ? Number(ev.freeMB) : null })
+    if (ev.type === 'process.start') live.set(label, { label, since: String(ev.ts), isWaiting: false, freeMB: null })
+    if (ev.type === 'process.end') live.delete(label)
+    if (ev.type === 'run.end' || ev.type === 'run.paused') live.clear()
+  }
+  return [...live.values()]
+}
+
+const holderText = (h: SlotHolder) => `${h.label}${h.isThisRun ? '' : ` (${h.project})`}`
+
 /** One plain sentence saying what the company is doing right now. */
-export function narrate(status: string, tasks: TaskRow[], board: Verdict | null, error: string, limit: string): string {
-  if (limit) return limit
+export function narrate(
+  status: string, tasks: TaskRow[], board: Verdict | null, error: string, limit: string,
+  context: { live?: LiveProc[]; holders?: SlotHolder[] } = {},
+): string {
+  const { live = [], holders = [] } = context
+  if (limit && (status === 'paused' || !ACTIVE_RUN.has(status))) return limit
   const failed = tasks.filter(t => t.status === 'failed').length
+  const others = holders.filter(h => !h.isThisRun)
+  const waiting = live.find(p => p.isWaiting)
   switch (status) {
-    case 'queued': return 'Waiting for a free Claude slot to start the run.'
+    case 'queued': return others.length
+      ? `Queued: every Claude slot is busy. Running now: ${others.slice(0, 2).map(holderText).join('; ')}.`
+      : 'Queued: starting as soon as a Claude slot is free.'
+    case 'paused': return 'Paused. Resume to carry on; approved work is kept.'
     case 'planning': return 'The CEO is reading the project and splitting the request into tasks.'
     case 'board': return 'The Board is reviewing everything that was delivered.'
     case 'done': return board?.decision === 'approve' || board?.decision === 'approve_with_conditions'
@@ -182,13 +213,21 @@ export function narrate(status: string, tasks: TaskRow[], board: Verdict | null,
     if (t.status === 'revising') return [`${t.department} is fixing ${quote(t.title)} after review (round ${t.round})`]
     return []
   })
-  if (doing.length === 0) return 'Waiting for memory or a free slot before the next task starts.'
+  if (doing.length === 0) {
+    if (waiting) {
+      const why = waiting.freeMB != null && others.length === 0 ? `memory (${waiting.freeMB} MB free)` : 'a free Claude slot'
+      return `${waiting.label} is waiting for ${why}${others.length ? `; running now: ${others.slice(0, 2).map(holderText).join('; ')}` : ''}.`
+    }
+    return 'Between steps: the next task is about to start.'
+  }
   const extra = doing.length > 2 ? `, and ${doing.length - 2} more` : ''
   return `${doing.slice(0, 2).join('; ')}${extra}.`
 }
 
+const MAX_ISSUES = 5
+
 /** A run's state.json as the pane sees it. Department ids become their names. */
-export function runView(s: Json, deptNames: Map<string, string>, roles: Json): RunView {
+export function runView(s: Json, deptNames: Map<string, string>, roles: Json, events: Json[] = [], holders: SlotHolder[] = []): RunView {
   const tasks: TaskRow[] = (s.tasks ?? []).map((t: Json) => ({
     id: String(t.id),
     department: deptNames.get(t.department) ?? String(t.department),
@@ -200,12 +239,19 @@ export function runView(s: Json, deptNames: Map<string, string>, roles: Json): R
     dependsOn: (t.dependsOn ?? []).map(String),
     verdict: verdictOf(t.verdict),
     error: String(t.error ?? ''),
+    brief: String(t.brief ?? ''),
+    deliverable: String(t.deliverable ?? ''),
+    issues: (t.verdict?.issues ?? []).slice(0, MAX_ISSUES).map((i: unknown) => (typeof i === 'string' ? i : JSON.stringify(i))),
+    isUnresolved: Boolean(t.unresolvedReview),
   }))
   const status = String(s.status ?? 'queued')
   const board = verdictOf(s.board)
   const error = String(s.error ?? '')
-  const limit = limitNote([error, board?.summary ?? '', ...tasks.map(t => t.error)])
+  const limit = s.status === 'paused' && s.resets
+    ? `Paused by your Claude usage limit, which resets ${s.resets}. Resume after that; approved work is kept.`
+    : limitNote([error, board?.summary ?? '', ...tasks.map(t => t.error)])
   const stage = stageOf(status, tasks)
+  const live = ACTIVE_RUN.has(status) ? liveProcs(events) : []
   return {
     id: String(s.id),
     status,
@@ -214,8 +260,8 @@ export function runView(s: Json, deptNames: Map<string, string>, roles: Json): R
     questions: (s.plan?.questions ?? []).map(String),
     tasks,
     stage,
-    isStuck: ['failed', 'stopped', 'done_with_failures'].includes(status),
-    now: narrate(status, tasks, board, error, limit),
+    isStuck: ['failed', 'stopped', 'done_with_failures', 'paused'].includes(status),
+    now: narrate(status, tasks, board, error, limit, { live, holders }),
     limitNote: limit,
     board,
     error,
@@ -224,7 +270,31 @@ export function runView(s: Json, deptNames: Map<string, string>, roles: Json): R
     finishedAt: String(s.finishedAt ?? ''),
     done: tasks.filter(t => t.status === 'approved').length,
     failed: tasks.filter(t => t.status === 'failed' || t.status === 'blocked').length,
+    live,
+    canResume: RESUMABLE.has(status),
+    resumes: Number(s.resumes) || 0,
   }
+}
+
+/** "3m 07s" / "1h 04m": a live counter, recomputed every animation frame. */
+export function ticking(from: string, now = Date.now()): string {
+  const start = Date.parse(from)
+  if (!Number.isFinite(start)) return ''
+  const secs = Math.max(0, Math.floor((now - start) / 1000))
+  if (secs < 60) return `${secs}s`
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ${String(secs % 60).padStart(2, '0')}s`
+  return `${Math.floor(secs / 3600)}h ${String(Math.floor((secs % 3600) / 60)).padStart(2, '0')}m`
+}
+
+/** "just now", "12s ago", "3m ago": how fresh the run's files are. */
+export function ago(ts: string, now = Date.now()): string {
+  const t = Date.parse(ts)
+  if (!Number.isFinite(t)) return ''
+  const secs = Math.max(0, Math.round((now - t) / 1000))
+  if (secs < 5) return 'just now'
+  if (secs < 60) return `${secs}s ago`
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`
+  return `${Math.floor(secs / 3600)}h ago`
 }
 
 export const runBrief = (s: Json): RunBrief => ({
@@ -254,6 +324,10 @@ export function feedItem(ev: Json): FeedItem {
   const at = (icon: string, hue: Hue, text: string): FeedItem => ({ time: clock(ev.ts), icon, hue, text, isChat })
   switch (ev.type) {
     case 'run.start': return at('▶', 'claude', 'Run started')
+    case 'run.resumed': return at('▶', 'claude', 'Run resumed: approved work kept, the rest carries on')
+    case 'run.queued': return at('◌', 'inactive', 'Queued to resume')
+    case 'run.paused': return at('⏸', 'warning', `Paused by the Claude usage limit${ev.resets ? `, resets ${ev.resets}` : ''}`)
+    case 'obsidian.failed': return at('!', 'warning', `Could not write the Obsidian note: ${ev.error ?? ''}`)
     case 'plan.ready': return at('◆', 'planMode', `CEO planned ${plural(Number(ev.tasks) || 0, 'task')}: ${ev.goal ?? ''}`)
     case 'process.start': return at('⚙', 'subtle', `Started ${ev.label ?? 'a process'}`)
     case 'process.end': return ev.ok ? at('■', 'subtle', `Finished ${ev.label ?? 'a process'}`) : at('✗', 'error', `${ev.label ?? 'A process'} stopped: ${ev.error ?? 'error'}`)

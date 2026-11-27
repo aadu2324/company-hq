@@ -13,6 +13,20 @@ const schema = args.includes('--json-schema') ? JSON.parse(args[args.indexOf('--
 const want = schema?.required || [];
 let structured = null;
 
+// Every call is logged as one line (ceo, manager:T1, manager:T2:resume, review:T1, board) so tests can
+// count what ran; FAKE_LIMIT_TASK makes that task's first manager call hit the usage limit once.
+const taskId = prompt.match(/Your task \(([^)]+)\)/)?.[1] || prompt.match(/^Task (\S+) \(/m)?.[1] || '';
+const kind = want.includes('tasks') ? 'ceo' : want.includes('verdict') ? `review:${taskId}` : want.includes('decision') ? 'board' : `manager:${taskId}`;
+const resumed = args.includes('--resume') ? ':resume' : '';
+if (process.env.FAKE_STATE_DIR) fs.appendFileSync(`${process.env.FAKE_STATE_DIR}/calls.log`, `${kind}${resumed}\n`);
+const limitMarker = `${process.env.FAKE_STATE_DIR}/limit-hit`;
+if (process.env.FAKE_LIMIT_TASK && kind === `manager:${process.env.FAKE_LIMIT_TASK}` && !fs.existsSync(limitMarker)) {
+  fs.writeFileSync(limitMarker, '1');
+  out({ type: 'result', subtype: 'success', is_error: true, session_id: sid, total_cost_usd: 0.02,
+    result: "You've hit your 5-hour limit · resets 4:20pm (America/Chicago)" });
+  process.exit(1);
+}
+
 if (want.includes('tasks')) {
   structured = { goal: 'Launch landing page and outreach', doneMeans: 'drafts ready', questions: [], tasks: [
     { id: 'T1', department: 'web', title: 'Landing page', brief: 'build it', deliverable: 'page' },

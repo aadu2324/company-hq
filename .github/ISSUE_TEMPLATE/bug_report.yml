@@ -1,0 +1,40 @@
+name: Bug report
+description: Something in HQ did not work as described
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting. Please remove anything private from logs before pasting them.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you saw instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where
+      options: [Desktop app, Terminal, VS Code, Other]
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: "`claude --version`, the plugin version (`/plugin` or plugin.json) and `node --version`"
+      placeholder: "2.1.331 (Claude Code), company-hq 0.3.0, node v22"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: Windows 11 / macOS 15 / Ubuntu 24.04
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: The last lines of `.company/runs/<id>/engine.log` and `events.jsonl`, if a run was involved.
+      render: text

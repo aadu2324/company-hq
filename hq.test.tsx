@@ -70,7 +70,8 @@ function stubEngine(on: any, files: Record<string, string>, env: Record<string, 
     const dir = `${norm(e.path)}/`
     const names = [...new Set(Object.keys(files).filter(f => f.startsWith(dir)).map(f => f.slice(dir.length).split('/')[0]))]
     if (names.length === 0) throw new Error(`ENOENT ${e.path}`)
-    return { value: names.map(name => ({ name, kind: 'dir', size: 0, mtimeMs: 0, isLink: false })) }
+    const kindOf = (name: string) => (Object.keys(files).some(f => f.startsWith(`${dir}${name}/`)) ? 'dir' : 'file')
+    return { value: names.map(name => ({ name, kind: kindOf(name), size: 0, mtimeMs: 0, isLink: false })) }
   })
   on('command.register', () => ({ value: { command: 'hq' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
@@ -237,4 +238,99 @@ test('a project without a team logs no chat delegation', async ($, on) => {
   await $.session.start({ cwd: '/proj', surface: 'desktop', isInteractive: true })
   await spawnAndReport($)
   expect(delegationRuns(runs)).toHaveLength(0)
+})
+
+// ---------- seeing what HQ is doing ----------
+
+/** The project's files with this run as its only run, its events, and any extra files (slots). */
+function withRun(state: object, events: object[], extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    '/proj/.company/org.json': JSON.stringify(ORG),
+    [`/proj/.company/runs/${RUN.id}/state.json`]: JSON.stringify({ ...RUN, ...state }),
+    [`/proj/.company/runs/${RUN.id}/events.jsonl`]: events.map(e => JSON.stringify(e)).join('\n') + '\n',
+    ...extra,
+  }
+}
+
+const now = () => new Date().toISOString()
+const slot = (s: object) => JSON.stringify({ pid: 1, ts: Date.now() - 90_000, ...s })
+
+test('a queued run says what is holding the Claude slots, even in another project', async ($, on) => {
+  const files = withRun({ status: 'queued', tasks: [], plan: undefined }, [{ ts: now(), type: 'slot.wait', label: 'CEO · plan', freeMB: 1500 }], {
+    '/home/.claude/company/state/slots/1-a': slot({ label: 'Review · web-client', project: 'MICA', runId: 'other-run' }),
+    '/home/.claude/company/state/slots/1-b': slot({ label: 'Backend · T3', project: 'MICA', runId: 'other-run' }),
+  })
+  stubEngine(on, files)
+  await $.session.start({ cwd: '/proj', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /^Queued/ }))?.text).toBe('Queued: every Claude slot is busy. Running now: Review · web-client (MICA); Backend · T3 (MICA).')
+  expect(await ui.find({ type: 'Text', text: 'Slots taken by other work:' })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /2\/2 in use/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /waiting/ })).toBeTruthy()
+  await ui.unmount()
+})
+
+test('a run with free slots says it starts as soon as one is free, and lists no other work', async ($, on) => {
+  stubEngine(on, withRun({ status: 'queued', tasks: [], plan: undefined }, [{ ts: now(), type: 'run.queued' }]))
+  await $.session.start({ cwd: '/proj', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: 'Queued: starting as soon as a Claude slot is free.' })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: 'Slots taken by other work:' })).toBeFalsy()
+  await ui.unmount()
+})
+
+test('planning shows the CEO process live, with a timer and a moving bar', async ($, on) => {
+  const files = withRun({ status: 'planning', tasks: [], plan: undefined, startedAt: now() }, [{ ts: now(), type: 'process.start', label: 'CEO · plan' }], {
+    '/home/.claude/company/state/slots/1-a': slot({ label: 'CEO · plan', project: 'Acme', runId: RUN.id }),
+  })
+  stubEngine(on, files)
+  await $.session.start({ cwd: '/proj', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: / PLANNING / })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: 'The CEO is reading the project and splitting the request into tasks.' })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: 'CEO · plan' })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /━●━/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: 'Slots taken by other work:' })).toBeFalsy()
+  await ui.unmount()
+})
+
+test('a paused run offers Resume, which carries it on through the engine', async ($, on) => {
+  const files = withRun({ status: 'paused', resets: '4:20pm (America/Chicago)', tasks: RUN.tasks.map(t => ({ ...t, workers: [], status: t.id === 'T1' ? 'pending' : 'approved' })) },
+    [{ ts: now(), type: 'run.paused', resets: '4:20pm (America/Chicago)' }])
+  const runs = stubEngine(on, files)
+  await $.session.start({ cwd: '/proj', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: / PAUSED / })).toBeTruthy()
+  expect((await ui.find({ type: 'Text', text: /usage limit/ }))?.text).toContain('resets 4:20pm (America/Chicago)')
+  expect(await ui.find({ type: 'Button', key: 'stop' })).toBeFalsy()
+  await ui.press({ key: 'resume' })
+  const resume = runs.find(r => r.argv.includes('resume'))
+  expect(resume?.argv.at(-1)).toBe(RUN.id)
+  await ui.unmount()
+})
+
+test('an active run offers no Resume button', async ($, on) => {
+  stubEngine(on, disk(true))
+  await $.session.start({ cwd: '/proj', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Button', key: 'stop' })).toBeTruthy()
+  expect(await ui.find({ type: 'Button', key: 'resume' })).toBeFalsy()
+  await ui.unmount()
+})
+
+test('a task approved with open review issues is flagged, and its details open on click', async ($, on) => {
+  const tasks = [{ id: 'T1', department: 'engineering', title: 'Legacy guard', status: 'approved', round: 1, unresolvedReview: true, workers: [],
+    brief: 'Guard the legacy routes', verdict: { verdict: 'revise', score: 6, summary: 'still leaky', issues: ['PHI in logs', 'no rate limit'] } }]
+  stubEngine(on, withRun({ status: 'done_with_failures', tasks }, [{ ts: now(), type: 'run.end', status: 'done_with_failures' }]))
+  await $.session.start({ cwd: '/proj', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'tab-tasks' })
+  expect(await ui.find({ type: 'Text', text: / APPROVED ⚠ / })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /reviewers still had open issues/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: 'Open issues' })).toBeFalsy()
+  await ui.press({ key: 'task-T1' })
+  expect(await ui.find({ type: 'Text', text: 'Open issues' })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: '1. PHI in logs' })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: 'Guard the legacy routes' })).toBeTruthy()
+  await ui.unmount()
 })

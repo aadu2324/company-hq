@@ -9,6 +9,8 @@ cp.spawn = (bin, args, opts) => (bin === 'FAKE' ? realSpawn(process.execPath, [f
 syncBuiltinESMExports();
 
 process.env.HQ_CLAUDE_BIN = 'FAKE';
-process.env.HQ_CONFIG_JSON = JSON.stringify({ minFreeMemMB: 0, maxProcesses: 4, pollMs: 20 });
+process.env.HQ_CONFIG_JSON = JSON.stringify({
+  minFreeMemMB: 0, maxProcesses: 4, pollMs: 20, ...JSON.parse(process.env.EXTRA_HQ_CONFIG || '{}'),
+});
 const { runEngine } = await import('../src/engine.js');
 await runEngine(project, runId);

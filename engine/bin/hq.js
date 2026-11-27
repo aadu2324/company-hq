@@ -2,7 +2,8 @@
 import path from 'node:path';
 import { runEngine } from '../src/engine.js';
 import { initTeam } from '../src/init.js';
-import { startRun, stopRun, startInit } from '../src/launcher.js';
+import { startRun, stopRun, startInit, resumeRun } from '../src/launcher.js';
+import { obsidianDir, backfillObsidian } from '../src/obsidian.js';
 import { discoverProjects, normalizePath } from '../src/projects.js';
 import { listRuns } from '../src/runstore.js';
 import { liveSlots, freeMemMB } from '../src/slots.js';
@@ -16,6 +17,8 @@ const HELP = `Claude HQ — run your Claude Code setup like a company.
   hq run <path> "<request>"  hand a request to the company (runs in background)
   hq status [path]           show recent runs
   hq stop <path> <runId>     stop a run and its Claude processes
+  hq resume <path> [runId]   carry on a paused or unfinished run (keeps approved work)
+  hq obsidian [path]         write every run into the Obsidian vault set in config.json
   hq projects                list projects Claude Code knows about
 `;
 
@@ -71,6 +74,20 @@ async function main(argv) {
       if (!rest[1]) throw new Error('usage: hq stop <path> <runId>');
       stopRun(normalizePath(rest[0]), rest[1]);
       console.log('Stopped.');
+      return undefined;
+    }
+    case 'resume': {
+      if (!rest[0]) throw new Error('usage: hq resume <path> [runId]');
+      const id = resumeRun(normalizePath(rest[0]), rest[1]);
+      console.log(`Resumed ${id}. Approved work is kept; the rest runs again.`);
+      return undefined;
+    }
+    case 'obsidian': {
+      const dir = obsidianDir();
+      if (!dir) throw new Error('Obsidian is not set up. Add { "obsidian": { "vault": "<vault folder>" } } to ~/.claude/company/config.json');
+      const projects = rest[0] ? [{ path: normalizePath(rest[0]) }] : discoverProjects().filter((x) => x.hasCompany);
+      const written = projects.reduce((n, pr) => n + backfillObsidian(pr.path), 0);
+      console.log(`Wrote ${written} run note(s) to ${dir}`);
       return undefined;
     }
     case 'projects':

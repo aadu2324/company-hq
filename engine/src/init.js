@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { loadConfig, loadCatalog, resolveClaude, companyDir } from './config.js';
+import { loadConfig, loadCatalog, resolveClaude, companyDir, processOptions } from './config.js';
 import { loadTemplate, validateOrg, saveOrg, PROJECT_TYPES } from './org.js';
 import { detectType, registerProject } from './projects.js';
 import { acquireSlot, releaseSlot } from './slots.js';
@@ -27,10 +27,10 @@ export async function initTeam(projectPath, { type, tailor = true, log = console
   if (tailor) {
     const config = loadConfig();
     log(`Org designer is tailoring the ${projectType} template…`);
-    const slot = await acquireSlot({ ...config, label: 'Org designer' });
+    const slot = await acquireSlot({ ...config, label: 'Org designer', meta: { project: path.basename(projectPath), runId: 'init' } });
     try {
       const res = await runClaude({
-        bin: resolveClaude(config), cwd: projectPath, model: config.models.orgDesigner,
+        bin: resolveClaude(config), cwd: projectPath, ...processOptions(config, 'orgDesigner'),
         prompt: orgDesignerPrompt({ projectPath, template, catalog, type: projectType }),
         schema: ORG_SCHEMA, disallowedTools: ['Edit', 'Write', 'NotebookEdit'], permissionMode: 'default',
         name: 'HQ · Org designer', env: { HQ_RUN_ID: 'init' },

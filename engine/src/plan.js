@@ -76,13 +76,19 @@ export function findCycle(tasks) {
  * Validate a CEO plan against the org and return normalised tasks.
  * Unknown reviewers are dropped; department reviewers are always included.
  */
-export function validatePlan(plan, org, catalog) {
+const DEFAULT_MAX_REVIEWERS = 5;
+
+/**
+ * Checks and normalises the CEO's plan. Each task's review panel is the CEO's own picks first, then
+ * the department's standing reviewers, capped at maxReviewers (the lean profile keeps it to 2).
+ */
+export function validatePlan(plan, org, catalog, { maxReviewers = DEFAULT_MAX_REVIEWERS, maxTasks = MAX_TASKS } = {}) {
   const errors = [];
   if (!plan || !Array.isArray(plan.tasks) || plan.tasks.length === 0) {
     return { ok: false, errors: ['plan has no tasks'], tasks: [] };
   }
   const depts = new Map((org.departments || []).map((d) => [d.id, d]));
-  const raw = plan.tasks.slice(0, MAX_TASKS);
+  const raw = plan.tasks.slice(0, Math.min(MAX_TASKS, Math.max(1, maxTasks)));
   const ids = new Set();
   for (const t of raw) {
     if (!t.id || ids.has(t.id)) errors.push(`missing or duplicate task id "${t.id}"`);
@@ -93,8 +99,9 @@ export function validatePlan(plan, org, catalog) {
   }
   const tasks = raw.map((t) => {
     const dept = depts.get(t.department);
-    const reviewers = [...new Set([...(dept?.reviewers || []).map(String), ...(t.reviewers || [])])]
-      .filter((r) => typeof r === 'string' && catalog.roles[r]);
+    const reviewers = [...new Set([...(t.reviewers || []), ...(dept?.reviewers || []).map(String)])]
+      .filter((r) => typeof r === 'string' && catalog.roles[r])
+      .slice(0, Math.max(1, maxReviewers));
     return {
       id: String(t.id),
       department: t.department,

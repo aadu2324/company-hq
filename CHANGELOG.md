@@ -3,6 +3,32 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-11-24
+
+### Added
+- **Pause and resume on the usage limit.** When Claude's usage limit stops a process, the run pauses
+  instead of failing: approved tasks stay approved, interrupted tasks keep their manager's conversation, and
+  the pane shows when the limit resets. `/hq resume` (or the **Resume run** button) carries on without
+  re-planning or redoing approved work. Failed, stopped and partly failed runs can be resumed too.
+- **Lean profile, now the default.** Measured on real runs, review panels of 4–5 reviewer subagents were
+  ~64% of the spend, and every background process carried ~77k tokens of hooks, MCP servers and skills.
+  Lean reviews each task in one pass from up to 2 perspectives with 1 revision round, plans at most 4 tasks,
+  runs everything on Sonnet at medium effort, and starts background processes without hooks, MCP servers or
+  skills (agents and CLAUDE.md are kept): about 58% less context per call and roughly 2× faster.
+  `"profile": "thorough"` restores the previous behaviour.
+- **Obsidian integration.** With `"obsidian": { "vault": "…" }` in `~/.claude/company/config.json`, every
+  run becomes a note (status, plan, tasks, verdicts, Board decision, links to the report) with a per-project
+  index and an `HQ` dashboard, linked to the project's own note. `hq obsidian` exports existing runs.
+- **See what HQ is doing.** A Live card lists each running process with a live timer, what a queued run is
+  waiting for (which run, in which project, holds the Claude slots, or how much memory is free), a sweeping
+  activity bar while work is happening, slot dots in the header, and "updated Xs ago".
+- Task cards open to show the brief, deliverable and the review's open issues. Tasks approved after the last
+  revision round with issues still open are flagged `APPROVED ⚠`.
+
+### Fixed
+- A stopped run no longer logs its end several times.
+- The Board report path works on macOS and Linux.
+
 ## [0.2.0] - 2026-11-23
 
 The whole company now ships in the plugin: install once and `/hq init`, `/hq run` work out of the box.
@@ -45,6 +71,7 @@ The whole company now ships in the plugin: install once and `/hq init`, `/hq run
 - Status row above the prompt with Open and Hide buttons.
 - `/hq`, `/hq run`, `/hq init`, `/hq stop` and `/hq status` commands.
 
+[0.3.0]: https://github.com/aadu2324/company-hq/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/aadu2324/company-hq/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/aadu2324/company-hq/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/aadu2324/company-hq/releases/tag/v0.1.0

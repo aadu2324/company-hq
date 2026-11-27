@@ -4,7 +4,9 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { companyDir } from './config.js';
 import { ensureDir } from './fsutil.js';
-import { newRunId, openRun } from './runstore.js';
+import { newRunId, openRun, listRuns } from './runstore.js';
+import { prepareResume, latestResumable } from './resume.js';
+import { exportRunToObsidian } from './obsidian.js';
 import { isPidAlive } from './slots.js';
 import { killTree } from './claude.js';
 
@@ -43,6 +45,22 @@ export function startInit(projectPath, type) {
   return spawnDetached(args, path.join(companyDir(projectPath), 'init.log'));
 }
 
+/**
+ * Carry on a paused, failed, stopped or partly failed run: approved work and the plan are kept,
+ * the rest runs again. With no runId, the newest resumable run of the project. Returns the run id.
+ */
+export function resumeRun(projectPath, runId) {
+  const id = runId || latestResumable(listRuns(projectPath, 50))?.id;
+  if (!id) throw new Error('No paused or unfinished run to resume in this project.');
+  const store = openRun(projectPath, id);
+  if (store.state?.pid && isEngineProcess(store.state.pid)) throw new Error(`run ${id} is already running`);
+  store.update((s) => prepareResume(s));
+  const pid = spawnDetached(['_engine', projectPath, id], path.join(store.dir, 'engine.log'));
+  store.update({ pid });
+  store.event('run.queued', { resumed: true });
+  return id;
+}
+
 const ACTIVE = new Set(['queued', 'planning', 'executing', 'board']);
 
 /** True only if pid is a live node process, so a recycled PID never gets killed. */
@@ -69,6 +87,7 @@ export function stopRun(projectPath, runId) {
     tasks: (s.tasks || []).map((t) => (['approved', 'failed', 'blocked'].includes(t.status) ? t : { ...t, status: 'stopped' })),
   }));
   store.event('run.end', { status: 'stopped' });
+  try { exportRunToObsidian(projectPath, store.reload() ?? store.state); } catch { /* the note is a convenience */ }
 }
 
 /** Open an interactive Claude Code session in a new PowerShell window. */
